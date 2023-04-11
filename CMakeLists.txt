@@ -1,81 +1,65 @@
-# This file specifies how the project should be built, using CMake.
-# If you are unfamiliar with CMake, don't worry about all the details.
-# The sections you might want to edit are marked as such, and
-# the comments should hopefully make most of it clear.
-#
-# For many purposes, you may not need to change anything about this file.
+cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
+project(MolecularSurfaces LANGUAGES CXX CUDA)
 
-cmake_minimum_required(VERSION 3.14)
-
-# Set project name, version and laguages here. (change as needed)
-# Version numbers are available by including "exampleConfig.h" in
-# the source. See exampleConfig.h.in for some more details.
-project(CPP_BOILERPLATE VERSION 1.2.3.4 LANGUAGES CXX)
-
-
-# Options: Things you can set via commandline options to cmake (e.g. -DENABLE_LTO=[ON|OFF])
-option(ENABLE_WARNINGS_SETTINGS "Allow target_set_warnings to add flags and defines.
-                                 Set this to OFF if you want to provide your own warning parameters." ON)
-option(ENABLE_LTO "Enable link time optimization" ON)
-option(ENABLE_DOCTESTS "Include tests in the library. Setting this to OFF will remove all doctest related code.
-                        Tests in tests/*.cpp will still be enabled." ON)
-
-# Include stuff. No change needed.
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/")
-include(ConfigSafeGuards)
-include(Colors)
+# enable unit testing via "make test" once the code has been compiled.
 include(CTest)
-include(Doctest)
-include(Documentation)
-include(LTO)
-include(Misc)
-include(Warnings)
 
-# Check for LTO support.
-find_lto(CXX)
+# Function to prepend the subdirectory to source files in subdirectories
+FUNCTION(PREPEND var )
+   SET(listVar "")
+   FOREACH(f ${${var}})
+       LIST(APPEND listVar "${CMAKE_CURRENT_SOURCE_DIR}/${f}")
+   ENDFOREACH(f)
+   SET(${var} "${listVar}" PARENT_SCOPE)
+ENDFUNCTION(PREPEND)
 
-# --------------------------------------------------------------------------------
-#                         Locate files (change as needed).
-# --------------------------------------------------------------------------------
-set(SOURCES          # All .cpp files in src/
-    src/example.cpp
-)
-set(TESTFILES        # All .cpp files in tests/
-    tests/main.cpp
-)
-set(LIBRARY_NAME engine)  # Default name for the library built from src/*.cpp (change if you wish)
+# After a normal build, we can specify the location of various outputs of the
+# build. We put executables and static libraries outside the build directory in
+# bin/ and lib/, respectively.
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/build/bin")
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/build/lib")
 
-# --------------------------------------------------------------------------------
-#                            Build! (Change as needed)
-# --------------------------------------------------------------------------------
-# Compile all sources into a library.
-add_library(${LIBRARY_NAME} OBJECT ${SOURCES})
+# Include source code and headers. This runs the CMakeLists.txt in each
+# subdirectory. These can define their own libraries, executables, etc. as targets,
+# but here we define all exportable targets in the root CMakeLists.txt.
+add_subdirectory(app)
+add_subdirectory(src)
+add_subdirectory(include)
 
-# Lib needs its header files, and users of the library must also see these (PUBLIC). (No change needed)
-target_include_directories(${LIBRARY_NAME} PUBLIC ${PROJECT_SOURCE_DIR}/include)
+add_library(MolecularSurfaces STATIC
+            app/main.cu
+            include/example.h
+            src/example.cpp
+            )
 
-# There's also (probably) doctests within the library, so we need to see this as well.
-target_link_libraries(${LIBRARY_NAME} PUBLIC doctest)
+target_include_directories(MolecularSurfaces PUBLIC include/)
 
-# Set the compile options you want (change as needed).
-target_set_warnings(${LIBRARY_NAME} ENABLE ALL AS_ERROR ALL DISABLE Annoying)
-# target_compile_options(${LIBRARY_NAME} ... )  # For setting manually.
+# Request that particles be built with -std=c++11
+# As this is a public compile feature anything that links to
+# particles will also build with -std=c++17
+target_compile_features(MolecularSurfaces PUBLIC cxx_std_17)
 
-# Add an executable for the file app/main.cpp.
-# If you add more executables, copy these lines accordingly.
-add_executable(main app/main.cpp)   # Name of exec. and location of file.
-target_link_libraries(main PRIVATE ${LIBRARY_NAME})  # Link the executable to library (if it uses it).
-target_set_warnings(main ENABLE ALL AS_ERROR ALL DISABLE Annoying) # Set warnings (if needed).
-target_enable_lto(main optimized)  # enable link-time-optimization if available for non-debug configurations
+# Set CUDA architecture
+# default value: 75 to match testing system with nvidia 2080 card
+if(NOT DEFINED ${CMAKE_CUDA_ARCHITECTURES})
+  set(CMAKE_CUDA_ARCHITECTURES 75 CACHE STRING "CUDA architectures" FORCE)
+endif()
+message(STATUS "CUDA architectures set to ${CMAKE_CUDA_ARCHITECTURES}")
 
-# Set the properties you require, e.g. what C++ standard to use. Here applied to library and main (change as needed).
-set_target_properties(
-    ${LIBRARY_NAME} main
-      PROPERTIES
-        CXX_STANDARD 17
-        CXX_STANDARD_REQUIRED YES
-        CXX_EXTENSIONS NO
-)
 
-# Set up tests (see tests/CMakeLists.txt).
-add_subdirectory(tests)
+# We need to explicitly state that we need all CUDA files in the
+# particle library to be built with -dc as the member functions
+# could be called by other libraries and executables
+set_target_properties( MolecularSurfaces
+                       PROPERTIES CUDA_SEPARABLE_COMPILATION ON
+                       CUDA_RESOLVE_DEVICE_SYMBOLS ON
+                       )
+
+add_executable(Surfaces app/main.cu)
+
+set_property(TARGET Surfaces
+             PROPERTY CUDA_SEPARABLE_COMPILATION ON
+             CUDA_RESOLVE_DEVICE_SYMBOLS ON
+             )
+
+target_link_libraries(Surfaces PRIVATE MolecularSurfaces)
