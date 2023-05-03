@@ -18,7 +18,8 @@
 #include <cuda_gl_interop.h>
 
 // Utility functions
-// #include <helper_functions.h>    // includes cuda.h and cuda_runtime_api.h
+#include <helper_math.h> // includes vector types
+#include <functions.cuh> // additional CUDA functions
 // #include <timer.h>               // timing functions
 
 // CUDA helper functions
@@ -28,6 +29,13 @@
 /////////////////////////////////////////////////////////////////////////////
 //////// CONSTANTS //////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
+// TODO check if defines are necessary
+#ifndef M_PI
+#define M_PI 3.141592653589793
+#endif
+#ifndef INFINITY
+#define INFINITY 1e8
+#endif
 
 // TODO: different resolutions from monitor
 const unsigned int window_width = 1920;
@@ -35,6 +43,9 @@ const unsigned int window_height = 1080;
 
 const unsigned int mesh_width = 128;
 const unsigned int mesh_height = 128;
+
+const float epsilon = 0.001;
+const float epsilon2 = epsilon * epsilon;
 
 const char application_name[] = "Molecular Surfaces";
 
@@ -67,7 +78,6 @@ bool runTest(int argc, char **argv, char *ref_file);
 void cleanup();
 
 // GL functionality
-bool initGL();
 void createVBO(GLuint *vbo, struct cudaGraphicsResource **vbo_res, unsigned int vbo_res_flags);
 void deleteVBO(GLuint *vbo, struct cudaGraphicsResource *vbo_res);
 void framebuffer_size_callback(GLFWwindow *window, int width, int height);
@@ -80,115 +90,215 @@ void runCuda(struct cudaGraphicsResource **vbo_resource);
 /////////////////////////////////////////////////////////////////////////////
 
 // Method by Parulek/Viola:
-// 1. Basis: sample point p of a ray
+// 1. Basis: sample point p of a ray / set data...
 // 2. Retrieve k clostest points to point p (in ascending order)
-// 3. Generate f_SES function (??? paper wants to generate the function twice, but intersection points are unknown as of here)
-// 4. Test intersection (solvent extended) surfaces of atom pairs
-// 5. Test intersection (solvent extended) surfaces of atom triplets
-// 6. Generate f_SES with all stored intersection points
+// 3. Test intersection with single atoms (point p in single SAS)
+// 4. Test intersection with atom pairs (point p in 2 SAS)
+// 5. Test intersection with atom triplets
 
-__global__ void compute_SES(float4 ray_pos, unsigned int width, unsigned int height)
+__global__ void marching_kernel(float4 *pos, unsigned int width, unsigned int height)
 {
+
+  /////////////////////////////////////////////////
+  // 0 // Preperations
+  /////////////////////////////////////////////////
   unsigned int x = blockIdx.x * blockDim.x + threadIdx.x;
   unsigned int y = blockIdx.y * blockDim.y + threadIdx.y;
 
-  // 1 //
-  unsigned int atom_count = 100;
+  // calculate uv coordinates
+  float u = x / (float)width;
+  float v = y / (float)height;
+  u = u * 2.0f - 1.0f;
+  v = v * 2.0f - 1.0f;
 
-  // 2 //
-  // allocate memory for k nearby atoms
-  // TODO: compare cuda Mappoc speed with new
-  float *group_S_id;
-  float *group_S_dist;
-  cudaMallocArray(group_S_id, k * sizeof(float));
-  cudaMallocArray(group_S_dist, k * sizeof(float));
+  // distance to next surface
+  float f = epsilon + 1;
 
-  // initialize distances with 2R
-  for (unsigned int i = 0; i < k; i++)
+  // starting position
+  // TODO calculate starting position of ray
+  float4 ray_pos;
+
+  // ray direction
+  // TODO calculate and normalize ray direction
+  float4 ray_dir;
+
+  // information to be filled on surface hit
+  float4 point;
+  float4 normal;
+
+  unsigned int atom_count = 10;
+
+  // set molecule data
+  // TODO implement class for atom data structure (shared float4 array as pointer to be set in class constructor?)
+  __shared__ float4 molecule[atom_count];
+
+  molecule[0] = make_float4(-0.4, 0.0, 0.0, 0.4);
+  molecule[1] = make_float4(0.5, 0.0, 0.0, 0.6);
+  molecule[2] = make_float4(0.7, 0.7, 0.0, 0.8);
+  molecule[3] = make_float4(-0.1, 0.7, -0.2, 0.5);
+  molecule[4] = make_float4(-0.3, 0.2, 0.5, 1.0);
+  molecule[5] = make_float4(0.1, 0.7, 0.3, 0.2);
+  molecule[6] = make_float4(0.9, -0.2, 0.3, 0.1);
+  molecule[7] = make_float4(-0.1, 0.8, -0.6, 1.1);
+  molecule[8] = make_float4(-0.6, -0.7, 0.1, 0.6);
+  molecule[9] = make_float4(0.1, -0.2, -0.3, 0.8);
+
+  // ray marching loop
+  while (f > epsilon)
   {
-    group_S_dist[i] = 2 * R;
+    // distance to ses for current marching step
+    float fses = compute_SES(ray_pos, molecule, atom_count);
+
+    // calculate new ray position
   }
+  // end:
+  // update pos to transfer data to cuda
+  // TODO add second buffer for normals?
+  pos[y * width + x] = make_float4(u, w, v, 1.0f);
+}
 
-  float max_dist = 2 * R;
-  float max_id = 0;
-  unsigned int num_participants = 0;
+// calculate distance to ses based on position ray_pos
+// TODO finish returns
+// TODO free memory of allocated arrays
+__device__ void compute_SES(float4 ray_pos, float4 *molecule_data, const int atom_count)
+{
+  // hold current distance to SES
+  float fses;
 
-  // calculate distance from point p to all atoms
+  /////////////////////////////////////////////////
+  // 1 // determine k closest points
+  /////////////////////////////////////////////////
+  // allocate float array for all (squared) distances to point p
+  float *distances;
+  cudaMallocArray(distances, atom_count * sizeof(float));
+
+  // allocate array for ids of k atoms closest to p
+  unsigned int *k_nearest_keys;
+  unsigned int nearest_count = min(k, atom_count);
+  cudaMallocArray(k_nearest_keys, nearest_count * sizeof(int));
+
+  // minimum distance to solvent accessible surface over all atoms
+  float min_sas;
+
+  // calculate distance
   // TODO: paper uses cubic voxels (3D grid to place atoms -> only calculate distances for 3x3x3 voxels instead of all atoms)
   for (unsigned int i = 0; i < atom_count; i++)
   {
+    // calculate distance from sample point p to atom centers
+    distances[i] = distance_squared(ray_pos, molecule[i]);
 
-    float dist = 0f;
-    // TODO implement distance function
-    // dist = ray_pos*ray_pos-a_pos*a_pos
-    if (dist < max_dist)
+    // calculate minimum distance to SAS
+    float sphere_sas = distances[i] - molecule[i].w * molecule[i].w;
+    if (sphere_sas < min_sas || i == 0)
     {
-      group_S_id[max_id] = i;
-      group_S_dist[max_id] = dist;
-
-      // TODO update max_dist + max_id
-      // max_dist = ... return max of array
-      // max_id = ...   return id corresponding to maximal array value
-      num_participants++;
+      min_sas = sphere_sas;
     }
+
+    // set key
+    k_nearest_keys[i] = i;
   }
-  int a_size;
-  if (num_participants < k)
+
+  // exit calculation if position of sample point p outside of SAS
+  if (min_sas > 0)
   {
-    // TODO: resize array
-    a_size = num_participants;
+    fses = min_sas;
+    return fses;
   }
-  else
+
+  // determine k atoms with smallest distance to sample point p (sorted)
+  k_nearest_keys = k_smallest_by_key(distances, atom_count, nearest_count);
+
+  /////////////////////////////////////////////////
+  // 2 // intersection with one atom
+  /////////////////////////////////////////////////
+  // TODO case 0 - when using voxels for nearest neighbours, there might be zero neighbours
+  // Case 1 - test if intersection occurs with one atom surface directly
+
+  // group of participating atoms is ordered, k_nearest_keys[0] contains the id of the closest atom
+  float4 dir = normalize(ray_pos - molecule[k_nearest_keys[0]]);
+  float4 surface_hit = molecule[k_nearest_keys[0]] + molecule[k_nearest_keys[0]].w * dir;
+
+  float surface_min_dist = INFINITY;
+  // check, if point is in SAS of another atom
+  bool case1 = true;
+  for (unsigned int i = 0; i < nearest_count; i++)
   {
-    a_size = k;
+    float dist_sas = distance_squared_sas(surface_hit, molecule[k_nearest_keys[i]]);
+    if (dist_sas < surface_min_dist)
+    {
+      surface_min_dist = dist_sas;
+      // if closest atom differs from atom with minimal distance to SAS -> case2
+      if (k_nearest_keys[i] != 0)
+      {
+        case1 = false;
+      }
+      else
+      {
+        case1 = true;
+      }
+    }
+    surface_min_dist = fmin(dist_sas, surface_min_dist);
   }
 
-  // TODO sort array in ascending order of distance
-  cudaFree(group_S_dist); // distances not necessary anymore after sort
+  // case1 = true -> case 2 and 3 dont have to be calculated
 
-  // 3 //
+  // TODO check distance to surface (f_ses). Only when f_ses < epsilon calculate point & normal
+  // TODO check whether to use epsilon or epsilon2
+  if (case1 && abs(surface_min_dist) < epsilon)
+  {
+    // surface point is surface_hit
+    // TODO case1 hit -> Calculate normal and send to shader
+    fses = -surface_min_dist;
+    return fses;
+  }
 
-  // 4 // test pairwise intersection
+  /////////////////////////////////////////////////
+  // 3 // Intersection with atom pair
+  /////////////////////////////////////////////////
+  // Case 2 - test if intersection with atom pair occurs (arc)
+  float4 arc_hit;
 
-  float4 intersec_2D;
-  float intersec_2D_dist = 2 * R;
-
-  float4 intersec_3D;
-  float intersec_3D_dist = 2 * R;
-
-  for (unsigned int i = 0; i < a_size; i++)
+  for (unsigned int i = 1; i < nearest_count; i++)
   {
     for (unsigned int j = 0; j < i; j++)
     {
-      // TODO: perform pairwise test, input: i, j // return true/false
-      bool test_2D;
-      if (test_2D)
-      {
-        // TODO calculate intersection point (2D) name: i_pos
-        // TODO calculate distance to point p (2D) name: dist
-        float i_dist;
-        float4 i_pos;
-        if (i_dist < intersec_2D_dist)
-        {
-          intersec_2D_dist = i_dist;
-          intersec_2D = i_pos;
-        }
+      // test predicate (p has to be in extended radius of both atom centers)
+      bool case2_potential = case2_predicate(ray_pos, molecule[k_nearest_keys[i]], molecule[k_nearest_keys[j]], R);
 
-        for (unsigned int m = 0; m < j; m++)
+      // if predicate adhered, calculate nearest surface point on arc between atoms
+      if (case2_potential)
+      {
+        float4 intersec = sphere_sphere_intersec(ray_pos, molecule[k_nearest_keys[i]], molecule[k_nearest_keys[j]], R);
+        // TODO: store intersection point for case3
+        arc_hit = arc_surface_point(ray_pos, intersec, R);
+
+        // test distance from sample point p to surface
+        // TODO check whether to use epsilon or epsilon2
+        if (distance_squared(arc_hit, ray_pos) < epsilon2)
         {
-          // TODO: perform triplet test, input: i, j, m // return true/false
-          bool test_3D;
-          if (test_3D)
-          {
-            // TODO calculate intersection point (3D)
-            // TODO calculate distance to point p (3D)
-          }
+          // TODO exit on first point or continue for other possible surface hits? (-> case3)
+          // TODO case2 hit -> Calculate normal and send to shader
+          return;
         }
       }
     }
   }
+
+  /////////////////////////////////////////////////
+  // 4 // Intersection with atom triplet
+  /////////////////////////////////////////////////
+  // Case 3 - test if intersection with atom triple occurs
+  float4 triplet_hit;
+
+  // idea from paper:
+  //  - only iterate over all intersection points from case2
+  //  - test predicate for case3
+  //  - calculate surface point
+
+  return fses;
 }
 
+// template
 __global__ void simple_vbo_kernel(float4 *pos, unsigned int width, unsigned int height, float time)
 {
   unsigned int x = blockIdx.x * blockDim.x + threadIdx.x;
@@ -209,11 +319,12 @@ __global__ void simple_vbo_kernel(float4 *pos, unsigned int width, unsigned int 
 }
 
 // to launch the kernel
-void launch_kernel(float4 *pos, unsigned int mesh_width, unsigned int mesh_height, float time)
+void launch_kernel(float4 *pos, unsigned int mesh_width, unsigned int mesh_height)
 {
   dim3 block(8, 8, 1);
   dim3 grid(mesh_width / block.x, mesh_height / block.y, 1);
-  simple_vbo_kernel<<<grid, block>>>(pos, mesh_width, mesh_height, time);
+
+  marching_kernel<<<grid, block>>>(float4 pos, mesh_width, mesh_height);
 }
 
 // determine capable gpu hardware
@@ -292,11 +403,6 @@ int main(int argc, char **argv)
 /////////////////////////////////////////////////////////////////////////////
 //////// Initialize GL //////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
-bool initGL()
-{
-
-  return true;
-}
 
 void framebuffer_size_callback(GLFWwindow *window, int width, int height)
 {
