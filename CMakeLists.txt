@@ -27,7 +27,7 @@ find_package(OpenGL REQUIRED)
 ####################################################################
 ### external projects ##############################################
 ####################################################################
-# Add OpenGL, glfw and glad as external project
+# Add OpenGL, glfw, glad and glm as external project
 include(ExternalProject)
 
 SET(CMAKE_EXE_LINKER_FLAGS /NODEFAULTLIB:\"libcmt.lib\")
@@ -57,12 +57,25 @@ CMAKE_ARGS      -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_CURRENT_BINARY_DIR}/dep/${li
                 -DUSE_MSVC_RUNTIME_LIBRARY_DLL:BOOL=OFF
 )
 
-# TODO set_target_properties will need conditionals for windows/linux since extensions differ
+set(libGLM glm)
+ExternalProject_Add(
+    glm
+    PREFIX ${CMAKE_CURRENT_BINARY_DIR}/dep/glm
+    GIT_REPOSITORY https://github.com/g-truc/glm.git
+    LOG_DOWNLOAD ON
+    BUILD_COMMAND ""
+    INSTALL_COMMAND   ""
+    CMAKE_ARGS  -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_CURRENT_BINARY_DIR}/dep/${libGLM}/install
+                -DGLAD_INSTALL:BOOL=ON
+                -DGLAD_PROFILE:STRING="core"
+                -DGLAD_ALL_EXTENSIONS:BOOL=ON
+                -DUSE_MSVC_RUNTIME_LIBRARY_DLL:BOOL=OFF
+    )
 
-# Create the oject files we will join together to create our singular static library, using the projects
-# that were previously added above via ExternalProject_Add
-# INSTALL_DIR not being set to value of CMAKE_INSTALL_PREFIX, so manuallysetting
-#ExternalProject_Get_Property(${libGLFW} INSTALL_DIR)
+set(GLM_INSTALL_DIR ${CMAKE_CURRENT_BINARY_DIR}/dep/${libGLM}/install)
+
+
+# TODO set_target_properties will need conditionals for windows/linux since extensions differ
 
 # SETUP GLFW
 set(GLFW_INSTALL_DIR ${CMAKE_CURRENT_BINARY_DIR}/dep/${libGLFW}/install)
@@ -75,6 +88,8 @@ set(GLAD_INSTALL_DIR ${CMAKE_CURRENT_BINARY_DIR}/dep/${libGLAD}/install)
 add_library(GLAD_LIBRARY OBJECT IMPORTED)
 set_target_properties(GLAD_LIBRARY PROPERTIES IMPORTED_OBJECTS ${GLAD_INSTALL_DIR}/lib/glad.lib)
 set_property(TARGET GLAD_LIBRARY PROPERTY IMPORTED_LOCATION ${GLAD_INSTALL_DIR})
+
+
 ####################################################################
 ### project files ##################################################
 ####################################################################
@@ -83,6 +98,8 @@ set_property(TARGET GLAD_LIBRARY PROPERTY IMPORTED_LOCATION ${GLAD_INSTALL_DIR})
 # TODO when finishing project: list files explicitly as GLOB is not recommended
 file(GLOB_RECURSE app CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/app/*.cu")
 file(GLOB_RECURSE headers CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h")
+file(GLOB_RECURSE headers CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/include/*.hpp")
+file(GLOB_RECURSE headers CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/include/*.cuh")
 file(GLOB_RECURSE sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 file(GLOB_RECURSE sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.c")
 
@@ -90,10 +107,12 @@ file(GLOB_RECURSE sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.c
 # Create a single .lib file containing our compiled objects, and the compiled objects of all other dependencies
 add_library(${PROJECT_NAME} STATIC ${app} ${headers} ${sources})
 
+
 # Add all include file paths
 target_include_directories(${PROJECT_NAME}
     PUBLIC ${GLAD_INSTALL_DIR}/include
     PUBLIC ${GLFW_INSTALL_DIR}/include
+    PUBLIC ${GLM_INSTALL_DIR}/include
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/app
@@ -103,6 +122,20 @@ target_include_directories(${PROJECT_NAME}
 add_dependencies(${PROJECT_NAME} ${libGLFW} ${libGLAD})
 target_link_libraries(${PROJECT_NAME} GLAD_LIBRARY GLFW_LIBRARY)
 
+# copy shader files
+# add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+#     COMMAND ${CMAKE_COMMAND} -E copy_directory
+#     ${CMAKE_CURRENT_SOURCE_DIR}/include/shaders
+#     ${CMAKE_CURRENT_BINARY_DIR}/dep/shaders
+#     COMMENT "Copying shaders into binary directory")
+
+add_custom_target(copy_shaders ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/shaders
+    ${CMAKE_CURRENT_BINARY_DIR}/dep/shaders
+    COMMENT "Copying shaders into binary directory")
+
+add_dependencies(${PROJECT_NAME} copy_shaders)
 ####################################################################
 ### cuda configurations ############################################
 ####################################################################
@@ -110,6 +143,11 @@ target_link_libraries(${PROJECT_NAME} GLAD_LIBRARY GLFW_LIBRARY)
 # As this is a public compile feature anything that links to
 # particles will also build with -std=c++17
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
+target_compile_options(${PROJECT_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:
+                        --generate-line-info
+                        --use_fast_math
+                        --relocatable-device-code=true
+                        >)
 
 # Set CUDA architecture
 # default value: 75 to match testing system with nvidia 2080 card
@@ -127,14 +165,19 @@ set_target_properties( ${PROJECT_NAME}
                        CUDA_RESOLVE_DEVICE_SYMBOLS ON
                        )
 
+
+
 # add executable
 add_executable(${EXECUTABLE_NAME}  app/main.cu)
 
 target_include_directories(${EXECUTABLE_NAME}
     PUBLIC ${GLAD_INSTALL_DIR}/include
     PUBLIC ${GLFW_INSTALL_DIR}/include
+    PUBLIC ${GLM_INSTALL_DIR}/include
     PUBLIC ${GLAD_C_DIR}
 )
+
+
 set_property(TARGET ${EXECUTABLE_NAME}
              PROPERTY CUDA_SEPARABLE_COMPILATION ON
              CUDA_RESOLVE_DEVICE_SYMBOLS ON
