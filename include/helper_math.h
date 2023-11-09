@@ -403,10 +403,7 @@ inline __device__ __host__ float lerp(float a, float b, float t)
 {
     return a + t * (b - a);
 }
-inline __device__ __host__ float2 lerp(float2 a, float2 b, float t)
-{
-    return a + t * (b - a);
-}
+
 inline __device__ __host__ float3 lerp(float3 a, float3 b, float t)
 {
     return a + t * (b - a);
@@ -526,10 +523,6 @@ inline __host__ __device__ float dot(float4 a, float4 b)
 // length
 ////////////////////////////////////////////////////////////////////////////////
 
-inline __host__ __device__ float length(float2 v)
-{
-    return sqrtf(dot(v, v));
-}
 inline __host__ __device__ float length(float3 v)
 {
     return sqrtf(dot(v, v));
@@ -543,11 +536,6 @@ inline __host__ __device__ float length(float4 v)
 // normalize
 ////////////////////////////////////////////////////////////////////////////////
 
-inline __host__ __device__ float2 normalize(float2 v)
-{
-    float invLen = rsqrtf(dot(v, v));
-    return v * invLen;
-}
 inline __host__ __device__ float3 normalize(float3 v)
 {
     float invLen = rsqrtf(dot(v, v));
@@ -642,6 +630,11 @@ inline __host__ __device__ float3 reflect(float3 i, float3 n)
     return i - 2.0f * n * dot(n, i);
 }
 
+inline __host__ __device__ float4 reflect(float4 i, float4 n)
+{
+    return i - 2.0f * n * dot(n, i);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // cross product
 ////////////////////////////////////////////////////////////////////////////////
@@ -667,11 +660,7 @@ inline __device__ __host__ float smoothstep(float a, float b, float x)
     float y = clamp((x - a) / (b - a), 0.0f, 1.0f);
     return (y * y * (3.0f - (2.0f * y)));
 }
-inline __device__ __host__ float2 smoothstep(float2 a, float2 b, float2 x)
-{
-    float2 y = clamp((x - a) / (b - a), 0.0f, 1.0f);
-    return (y * y * (make_float2(3.0f) - (make_float2(2.0f) * y)));
-}
+
 inline __device__ __host__ float3 smoothstep(float3 a, float3 b, float3 x)
 {
     float3 y = clamp((x - a) / (b - a), 0.0f, 1.0f);
@@ -681,6 +670,19 @@ inline __device__ __host__ float4 smoothstep(float4 a, float4 b, float4 x)
 {
     float4 y = clamp((x - a) / (b - a), 0.0f, 1.0f);
     return (y * y * (make_float4(3.0f) - (make_float4(2.0f) * y)));
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// equal
+////////////////////////////////////////////////////////////////////////////////
+inline __device__ __host__ bool operator==(const float4 &a, const float4 &b)
+{
+    return a.x == b.x && a.y == b.y && a.z == b.z;
+}
+
+inline __device__ __host__ bool operator!=(const float4 &a, const float4 &b)
+{
+    return !(a == b);
 }
 
 #endif
