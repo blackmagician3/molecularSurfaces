@@ -100,7 +100,7 @@ the [setup script](setup.sh) as follows:
 The result is a fresh Git repository with one commit adding all files from the boiler plate.
 
 ## Controls
-´´´bash
+``` bash
 Rightclick & Drag   > Rotate Molecule
 Mousewheel          > Zoom
 
@@ -124,7 +124,7 @@ Arrow-Down  > decrease Solvent Radius
 3 > set epsilon to 10^(-3)
 4 > set epsilon to 10^(-4)
 5 > set epsilon to 10^(-5)
-´´´bash
+``` bash
 
 
 
