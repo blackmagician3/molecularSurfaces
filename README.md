@@ -98,3 +98,33 @@ the [setup script](setup.sh) as follows:
 > bash setup.sh
 ```
 The result is a fresh Git repository with one commit adding all files from the boiler plate.
+
+## Controls
+
+Rightclick & Drag   > Rotate Molecule
+Mousewheel          > Zoom
+
+W > move camera upwards
+A > move camera left
+S > move camera downwards
+D > move camera right
+
+I > move camera forward
+K > move camera backward
+
+X > reset camera and set x-axis as viewing axis
+Y > reset camera and set y-axis as viewing axis
+Z > reset camera and set z-axis as viewing axis
+
+Arrow-Up    > increase Solvent Radius
+Arrow-Down  > decrease Solvent Radius
+
+1 > set epsilon to 10^(-1)
+2 > set epsilon to 10^(-2)
+3 > set epsilon to 10^(-3)
+4 > set epsilon to 10^(-4)
+5 > set epsilon to 10^(-5)
+
+
+
+
