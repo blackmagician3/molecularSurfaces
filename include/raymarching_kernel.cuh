@@ -112,7 +112,7 @@ __device__ float4 calculateNormal(float4 p, float4 surface_orientation, int case
     }
 }
 
-__global__ void marching_kernel(cudaSurfaceObject_t surface, float4 *molecule, float4 screen_center, float4 cam_right, float4 cam_up, float4 cam_position, float4 cam_front)
+__global__ void marching_kernel(cudaSurfaceObject_t surface, float4 *molecule, float4 screen_center, float4 cam_focus, float4 cam_right, float4 cam_up, float4 cam_position, float4 cam_front)
 {
     /////////////////////////////////////////////////
     // 0 // Preperations
@@ -190,8 +190,9 @@ void runCuda(Camera *cam, SimulationParams host_params, float4 *molecule)
 
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // camera setup
-
+    // TODO: organise as array (cam_properties)
     float4 cam_center = cam->getCenterAsFloat4();
+    float4 cam_focus = cam->getFocusAsFloat4();
     float4 cam_right = cam->getRightAsFloat4();
     float4 cam_up = cam->getUpAsFloat4();
     float4 cam_pos = cam->getPosAsFloat4();
@@ -214,6 +215,7 @@ void runCuda(Camera *cam, SimulationParams host_params, float4 *molecule)
     marching_kernel<<<grid, block>>>(surf_object_1,
                                      molecule,
                                      cam_center,
+                                     cam_focus,
                                      cam_right,
                                      cam_up,
                                      cam_pos,

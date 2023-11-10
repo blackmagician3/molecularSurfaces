@@ -29,29 +29,7 @@ unsigned int indices[] = {
     1, 2, 3  // second Triangle
 };           // note that we start from 0!
 
-void setMVP(Shader ourShader, glm::vec3 pos, Camera cam)
-{
-    // Usually Depth Test hast to be enabled only once
-    glEnable(GL_DEPTH_TEST);
-    // But is as to be cleared during every frame !
-    glClear(GL_DEPTH_BUFFER_BIT);
-    // make sure to initialize matrix to identity matrix first
-    glm::mat4 model = glm::mat4(1.0f);
-    glm::mat4 view = glm::mat4(1.0f);
-    glm::mat4 projection = glm::mat4(1.0f);
-    // update model, view and perspective mats
-    model = glm::translate(model, pos);
-    model = glm::rotate(model, (float)glfwGetTime(), pos);
-    view = cam.GetViewMatrix();
-    projection = glm::perspective(glm::radians(cam.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
-
-    // pass mats to shader
-    ourShader.use();
-    ourShader.setMat("projection", projection);
-    ourShader.setMat("model", model);
-    ourShader.setMat("view", view);
-}
-
+// TODO: cleanup: this header is named poorly
 int quadBuffers()
 {
     // generate VAO, VBO

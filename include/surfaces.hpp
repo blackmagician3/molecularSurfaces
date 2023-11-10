@@ -345,7 +345,7 @@ __device__ float computeSurface(float4 ray_pos, float4 *molecule, SimulationPara
     if (!surface_found)
     {
         bool first = true;
-        float surface_dist = INFINITY;
+        // float surface_dist = INFINITY;
         for (unsigned int i = 0; i < nearest_count - 2; i++)
         {
             for (unsigned int j = i + 1; j < nearest_count - 1; j++)

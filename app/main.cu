@@ -45,8 +45,8 @@
 #endif
 bool first_debug = true;
 
-const float near = 0.1;
-const float far = 100.0f;
+// const float near = 0.1;
+// const float far = 100.0f;
 
 // GL stuff
 // TODO: different resolutions from monitor
@@ -54,9 +54,6 @@ const unsigned int window_width = 1920;
 const unsigned int window_height = 1080;
 
 const char application_name[] = "Molecular Surfaces";
-
-// Camera
-Camera cam(0.0f, 0.0f, 8.0f);
 
 // timing
 float deltaTime = 0.0f; // time between current frame and last frame
@@ -128,7 +125,12 @@ int main(int argc, char **argv)
     return -1;
   }
   GLFWwindow *window = iWindow->getWindowPointer();
+  Camera *cam = getCameraPointer();
 
+  // register callbacks
+  glfwSetCursorPosCallback(window, mouse_callback);
+  glfwSetScrollCallback(window, scroll_callback);
+  glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
   /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   // initializations
   int kernel_call = 0;
@@ -161,20 +163,20 @@ int main(int argc, char **argv)
 
     //////////////////////////////////////////////////////////////////////////////////////
     // handle inputs
-    processInput(window, settings); // handle keyboard events
+    processInput(window, settings, deltaTime); // handle keyboard events
 
-    glm::vec2 cam_mov = mouse_offset(window);                                                                         // get mouse movement
-    cam.ProcessMouseMovement(cam_mov.x, cam_mov.y);                                                                   // process mouse movement
-    cam.ProcessKeyboard(window, deltaTime);                                                                           // camera/view transformation
-    glm::mat4 view = cam.GetViewMatrix();                                                                             // view matrix
-    glm::mat4 proj = glm::perspective(glm::radians(cam.Zoom), (float)window_width / (float)window_height, near, far); // projection matrix
-    quadTex.setMat("view", view);
-    quadTex.setMat("projection", proj);
+    // glm::vec2 cam_mov = mouse_offset(window); // get mouse movement
+    // cam->ProcessMouseMovement(cam_mov.x, cam_mov.y);
+    // glm::mat4 view = cam->GetViewMatrix(); // view matrix
+    // glm::mat4 proj = glm::perspective(glm::radians(cam->Zoom), (float)window_width / (float)window_height, near, far); // projection matrix
+    // glm::mat4 proj = glm::mat4(1.0);
+    // quadTex.setMat("view", view);
+    // quadTex.setMat("projection", proj);
     //////////////////////////////////////////////////////////////////////////////////////
 
     //////////////////////////////////////////////////////////////////////////////////////
     // run CUDA kernel to generate vertex positions
-    runCuda(&cam, settings->getAllHostParams(), settings->getDeviceMolecule());
+    runCuda(cam, settings->getAllHostParams(), settings->getDeviceMolecule());
     //////////////////////////////////////////////////////////////////////////////////////
 
     //////////////////////////////////////////////////////////////////////////////////////
