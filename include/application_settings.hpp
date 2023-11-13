@@ -17,6 +17,8 @@ class AppSettings
 private:
     bool initialized;
     bool molecule_loaded;
+    bool performanceDisplay;
+    unsigned int frameLimit;
 
     // parameters for both CPU and GPU
     SimulationParams host_params;
@@ -27,7 +29,7 @@ public:
     float4 *molecule_device;
     ////////////////////////////////////////////////////////////////////////////////////////////////////////
     // functions
-    AppSettings(uint width, uint height, uint texture) : initialized(true), molecule_loaded(false)
+    AppSettings(uint width, uint height, uint texture) : initialized(true), molecule_loaded(false), performanceDisplay(false)
     {
         host_params.window_width = width;
         host_params.window_height = height;
@@ -50,6 +52,8 @@ public:
         molecule_device = nullptr;
 
         host_params.debug_mode = false;
+
+        frameLimit = 0;
 
         initialize();
     }
@@ -225,6 +229,14 @@ public:
     {
         return host_params;
     }
+    bool getPerformanceDisplay()
+    {
+        return performanceDisplay;
+    }
+    unsigned int getFrameLimit()
+    {
+        return frameLimit;
+    }
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -249,6 +261,14 @@ public:
     {
         host_params.mouse_x_pos = value_x;
         host_params.mouse_y_pos = value_y;
+    }
+    void changePerformanceDisplay(bool state)
+    {
+        performanceDisplay = state;
+    }
+    void changeFrameLimit(unsigned int limit)
+    {
+        frameLimit = limit;
     }
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////

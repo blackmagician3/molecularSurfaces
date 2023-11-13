@@ -69,16 +69,16 @@ __host__ __device__ float calcSignedDistanceOuter(float4 p, float4 *atoms, int a
 }
 __host__ __device__ float calcSignedDistanceOuterWithNearestAtom(float4 p, float4 *atoms, int atomCount, float4 *surface_orientation)
 {
-    int near = 0;
+    int nearId = 0;
     float dist = calcSignedDistanceSphere(p, atoms[0]);
     for (unsigned int i = 1; i < atomCount; i++)
     {
         float tmp = dist;
         dist = min(dist, calcSignedDistanceSphere(p, atoms[i]));
         if (tmp > dist)
-            near = i;
+            nearId = i;
     }
-    *surface_orientation = atoms[near];
+    *surface_orientation = atoms[nearId];
 
     return dist;
 }
@@ -353,6 +353,10 @@ __device__ float computeSurface(float4 ray_pos, float4 *molecule, SimulationPara
                 for (unsigned int k = j + 1; k < nearest_count; k++)
                 {
                     pairFloat4 s_pot = calculate_case3(ray_pos, nearest_atoms[i].location, nearest_atoms[j].location, nearest_atoms[k].location, surface_hit, nearest_atoms, nearest_count, params.epsilon);
+
+                    // every case 3 has two potential surface points. loop over both and determine it's distance to the current position.
+                    // -> bool first ensures that both distances are tested, if both points of a potential pair lies on the surface
+                    // -> the 4th component of the final surface point stores the distance of the previous calculated point to the position
                     for (unsigned int n = 0; n < 2; n++)
                     {
                         if (abs(calcSignedDistanceOuter(s_pot.values[n], nearest_atoms, nearest_count)) < params.epsilon)
@@ -371,18 +375,7 @@ __device__ float computeSurface(float4 ray_pos, float4 *molecule, SimulationPara
                                 surface_hit.w = length(ray_pos - s_pot.values[n]);
                             }
                         }
-
-                        // float dist = length(ray_pos - s_pot.values[n]);
-                        // if (dist < surface_dist)
-                        // {
-                        //     *colour = c_case3;
-                        //     surface_hit = s_pot.values[n];
-                        //     *case_id = 3;
-                        //     surface_found = true;
-                        //     surface_dist = dist;
-                        // }
                     }
-                    // surface_dist = INFINITY;
                 }
             }
         }

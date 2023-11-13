@@ -7,6 +7,10 @@
 
 #include <vector>
 
+#ifndef M_PI
+#define M_PI 3.141592653589793
+#endif
+
 // Define possible options for camera movement
 enum Camera_Movement
 {
@@ -48,6 +52,8 @@ public:
 	{
 		Position = position;
 		WorldUp = up;
+		xOffset = 0.0f;
+		yOffset = 0.0f;
 
 		updateCameraVectors();
 	}
@@ -91,10 +97,13 @@ public:
 	}
 
 	// processes input received from a mouse input system. Expects the offset value in both the x and y direction.
-	void ProcessCameraRotation(float xoffset, float yoffset, GLboolean constrainPitch = true)
+	void ProcessCameraRotation(float xoffset, float yoffset)
 	{
-		xoffset *= MouseSensitivity;
-		yoffset *= MouseSensitivity;
+		// TODO: optimize: perform overflow every 1000 or so rotations
+		xOffset = xOffset + xoffset * MouseSensitivity;
+		xOffset = overflowInRange(xOffset, 0, 2 * M_PI);
+		yOffset = yOffset + yoffset * MouseSensitivity;
+		yOffset = overflowInRange(yOffset, 0, 2 * M_PI);
 
 		// step1: find rotation axis
 
@@ -116,6 +125,16 @@ public:
 
 		// update Front, Right and Up Vectors using the updated Euler angles
 		updateCameraVectors();
+	}
+	float overflowInRange(float value, float min, float max)
+	{
+
+		float whole, frac, result;
+		float range = max - min;
+		frac = modf(value / range, &whole);
+		result = frac * range + min;
+
+		return result;
 	}
 
 	// processes input received from a mouse scroll-wheel event. Only requires input on the vertical wheel-axis
@@ -178,9 +197,13 @@ public:
 		Right = glm::normalize(glm::cross(Front, WorldUp));
 		Up = glm::normalize(glm::cross(Right, Front));
 		Zoom = ZOOM;
+		xOffset = 0.0f;
+		yOffset = 0.0f;
 	}
 
 private:
+	float xOffset;
+	float yOffset;
 	// calculates the front vector from the Camera's (updated) Euler Angles
 	void updateCameraVectors()
 	{

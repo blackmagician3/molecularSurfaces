@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <windows.h>
 
 // includes OpenGL
 #include <glad/glad.h>
@@ -32,14 +33,13 @@
 #include <application_settings.hpp>
 #include <raymarching_kernel.cuh>
 #include <inputWindow.hpp>
+#include <performance.hpp>
 
 /////////////////////////////////////////////////////////////////////////////
 //////// CONSTANTS //////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
 // TODO check if defines are necessary
-#ifndef M_PI
-#define M_PI 3.141592653589793
-#endif
+
 #ifndef INFINITY
 #define INFINITY 1e8
 #endif
@@ -131,9 +131,9 @@ int main(int argc, char **argv)
   glfwSetCursorPosCallback(window, mouse_callback);
   glfwSetScrollCallback(window, scroll_callback);
   glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+
   /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   // initializations
-  int kernel_call = 0;
   AppSettings *settings = new AppSettings(window_width, window_height, texture_1); // initialize application settings
   iWindow->linkSettings(settings);
 
@@ -141,37 +141,42 @@ int main(int argc, char **argv)
   Shader quadTex;                                 // create Shader
   quadTex.init("fb_vertex.vs", "fb_fragment.fs"); // load shaders
   quadTex.use();                                  // use shader
-  glm::mat4 model(0);                             // create model matrix
   int VAO = quadBuffers();                        // create and bind buffers for quad (used to display the molecule using a texture)
 
   settings->update();       // copy parameters to GPU
   settings->loadMolecule(); // load molecule data
-  /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+  // performance measuring (disabled by default)
+  settings->changePerformanceDisplay(true); // activate performance measuring
+  PerformanceCounter performance(10);       // add performance counter
+
+  // frames per second limit (0 for unlimited)
+  settings->changeFrameLimit(0);
+
+  /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  int frames = 0;
   // start rendering mainloop
   while (!glfwWindowShouldClose(window))
   {
     //////////////////////////////////////////////////////////////////////////////////////
     // time settings
-    kernel_call++;
-    // std::cout << "kernel call " << kernel_call << std::endl;
-    // use delta time
     float currentFrame = glfwGetTime();
     deltaTime = currentFrame - lastFrame;
     lastFrame = currentFrame;
+    ++frames;
+    //////////////////////////////////////////////////////////////////////////////////////
+    // performance measuring
+    if (settings->getPerformanceDisplay())
+    {
+      performance.runMeasuring(deltaTime);
+    }
+
     //////////////////////////////////////////////////////////////////////////////////////
 
     //////////////////////////////////////////////////////////////////////////////////////
     // handle inputs
     processInput(window, settings, deltaTime); // handle keyboard events
 
-    // glm::vec2 cam_mov = mouse_offset(window); // get mouse movement
-    // cam->ProcessMouseMovement(cam_mov.x, cam_mov.y);
-    // glm::mat4 view = cam->GetViewMatrix(); // view matrix
-    // glm::mat4 proj = glm::perspective(glm::radians(cam->Zoom), (float)window_width / (float)window_height, near, far); // projection matrix
-    // glm::mat4 proj = glm::mat4(1.0);
-    // quadTex.setMat("view", view);
-    // quadTex.setMat("projection", proj);
     //////////////////////////////////////////////////////////////////////////////////////
 
     //////////////////////////////////////////////////////////////////////////////////////
@@ -187,10 +192,20 @@ int main(int argc, char **argv)
 
     //////////////////////////////////////////////////////////////////////////////////////#
 
+    // limit frames per second
+    // TODO: sleep function differs under ubuntu and windows
+    if (settings->getFrameLimit() > 0)
+    {
+      float endTime = glfwGetTime();
+      float deltaFrame = endTime - lastFrame;
+      float sleepTime = ((1.0f / settings->getFrameLimit()) - deltaFrame) * 1000.0f;
+      if (sleepTime > 0)
+        Sleep(sleepTime);
+    }
+
+    // swap buffers
     glfwSwapBuffers(window);
     glfwPollEvents();
-
-    // TODO: implement fps counter
   }
   cleanup(settings);
   delete iWindow;

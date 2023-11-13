@@ -169,32 +169,11 @@ float lastX;
 float lastY;
 bool firstMouse = true;
 
-glm::vec2 mouse_offset(GLFWwindow *window)
-{
-    double xpos, ypos;
-    glfwGetCursorPos(window, &xpos, &ypos);
-    if (firstMouse)
-    {
-        lastX = xpos;
-        lastY = ypos;
-        firstMouse = false;
-    }
-
-    float xoffset = xpos - lastX;
-    float yoffset = lastY - ypos; // reversed since y-coordinates go from bottom to top
-
-    lastX = xpos;
-    lastY = ypos;
-    // std::cout << xoffset << std::endl;
-
-    return glm::vec2(xoffset, yoffset);
-}
-
 void mouse_callback(GLFWwindow *window, double xpos, double ypos)
 {
     if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS)
     {
-        // glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
         if (firstMouse)
         {
             lastX = xpos;
@@ -211,7 +190,8 @@ void mouse_callback(GLFWwindow *window, double xpos, double ypos)
     }
     if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_RELEASE)
     {
-        // glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+        firstMouse = true;
     }
 }
 
