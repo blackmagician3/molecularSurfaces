@@ -15,7 +15,7 @@
 #include <assert.h>
 #include <vector>
 #include <helper_cuda.h> // helper functions for CUDA error check
-#include <camera.h>
+#include <camera.hpp>
 #include <surfaces.hpp>
 #include <application_settings.hpp>
 #include <simulation_config.hpp>
@@ -62,22 +62,32 @@ __device__ void printFunc(float4 *array, int array_length, int x, int y)
     }
 }
 
-__device__ float4 calculateLighting(SimulationParams params, float4 colour, float4 position, float4 normal, float4 cam_pos)
+__device__ float4 calculateLighting(SimulationParams params, uint hexColor, float4 position, float4 normal, float4 cam_pos)
 {
-    // colors
-    float4 light_colour = make_float4(1.0f, 1.0f, 1.0f, 0.0f);
+
+    // convert hex color to rgb
+    float4 color;
+    color.x = ((hexColor >> 16) & 0xFF) / 255.0f; // Extract the RR byte
+    color.y = ((hexColor >> 8) & 0xFF) / 255.0f;  // Extract the GG byte
+    color.z = ((hexColor) & 0xFF) / 255.0f;       // Extract the BB byte
+    color.w = 1.0f;
+
+    // TODO: remove point light source
+
+    //  colors
+    float4 light_color = make_float4(1.0f, 1.0f, 1.0f, 0.0f);
     float4 light_position = make_float4(5.0f, 0.0f, 10.0f, 0.0f);
 
     // ambient
     float ambientStrength = 0.1f;
-    float4 ambient = ambientStrength * light_colour;
+    float4 ambient = ambientStrength * light_color;
 
     // diffuse
     float4 norm = normalize(normal);
     float4 light_dir = normalize(light_position - position);
 
     float diff = max(dot(norm, light_dir), 0.0);
-    float4 diffuse = diff * light_colour;
+    float4 diffuse = diff * light_color;
 
     // specular
     float specularStrength = 0.6f;
@@ -85,10 +95,10 @@ __device__ float4 calculateLighting(SimulationParams params, float4 colour, floa
     float4 reflectDir = reflect(-light_dir, norm);
 
     float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32);
-    float4 specular = specularStrength * spec * light_colour;
+    float4 specular = specularStrength * spec * light_color;
 
     // final color
-    float4 result = (ambient + diffuse + specular) * colour;
+    float4 result = (ambient + diffuse + specular) * color;
 
     return result;
 }
@@ -112,7 +122,7 @@ __device__ float4 calculateNormal(float4 p, float4 surface_orientation, int case
     }
 }
 
-__global__ void marching_kernel(cudaSurfaceObject_t surface, float4 *molecule, float4 screen_center, float4 cam_focus, float4 cam_right, float4 cam_up, float4 cam_position, float4 cam_front)
+__global__ void marching_kernel(cudaSurfaceObject_t surface, float4 *molecule, uint *colors, float4 screen_center, float4 cam_focus, float4 cam_right, float4 cam_up, float4 cam_position, float4 cam_front)
 {
     /////////////////////////////////////////////////
     // 0 // Preperations
@@ -136,8 +146,8 @@ __global__ void marching_kernel(cudaSurfaceObject_t surface, float4 *molecule, f
     float depth = params.depth_min;
     bool hit = false;
     int steps_max = 250;
-    float4 b_colour = make_float4(0.3f, 0.3f, 0.3f, 1.0f);
-    float4 colour;
+    uint b_color = 0x323232;
+    uint color = b_color;
     float4 surface_orientation;
     int case_id = 0;
 
@@ -150,7 +160,7 @@ __global__ void marching_kernel(cudaSurfaceObject_t surface, float4 *molecule, f
 
         // compute distance to surface
 
-        float f_sdf = computeSurface(ray_pos, molecule, params, &hit, &colour, &surface_orientation, &case_id, x, y);
+        float f_sdf = computeSurface(ray_pos, molecule, colors, params, &hit, &color, &surface_orientation, &case_id, x, y);
 
         // for SES extend distance by solvent radius
         f_sdf += params.solvent_radius;
@@ -166,20 +176,21 @@ __global__ void marching_kernel(cudaSurfaceObject_t surface, float4 *molecule, f
         }
         if (depth > params.depth_max)
         {
-            colour = b_colour;
+            color = b_color;
             break;
         }
     }
 
+    float4 colorRGB = make_float4(0.2f, 0.2f, 0.2f, 1.0f);
     if (case_id != 0 && case_id != 4)
     {
         float4 normal = calculateNormal(ray_pos, surface_orientation, case_id, params.debug_mode);
-        colour = calculateLighting(params, colour, ray_pos, normal, cam_position);
+        colorRGB = calculateLighting(params, color, ray_pos, normal, cam_position);
     }
 
-    surf2Dwrite(colour, surface, x * sizeof(float4), y);
+    surf2Dwrite(colorRGB, surface, x * sizeof(float4), y);
 }
-void runCuda(Camera *cam, SimulationParams host_params, float4 *molecule)
+void runCuda(Camera *cam, SimulationParams host_params, float4 *molecule, uint *colors)
 {
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // thread/grid setup
@@ -214,6 +225,7 @@ void runCuda(Camera *cam, SimulationParams host_params, float4 *molecule)
     // run kernel and update texture 1 via surface object
     marching_kernel<<<grid, block>>>(surf_object_1,
                                      molecule,
+                                     colors,
                                      cam_center,
                                      cam_focus,
                                      cam_right,

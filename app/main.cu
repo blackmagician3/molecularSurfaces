@@ -15,7 +15,7 @@
 #include <GLFW/glfw3.h>
 #include "helper_gl.h"
 #include "shader.h"
-#include "camera.h"
+#include "camera.hpp"
 
 // includes cuda
 #include <cuda_runtime.h>
@@ -143,15 +143,16 @@ int main(int argc, char **argv)
   quadTex.use();                                  // use shader
   int VAO = quadBuffers();                        // create and bind buffers for quad (used to display the molecule using a texture)
 
-  settings->update();       // copy parameters to GPU
-  settings->loadMolecule(); // load molecule data
+  settings->setColorScheme(1); // chooses color scheme for visualization
+  settings->update();          // copy parameters to GPU
+  settings->loadMolecule();    // load molecule data
 
   // performance measuring (disabled by default)
-  settings->changePerformanceDisplay(true); // activate performance measuring
-  PerformanceCounter performance(10);       // add performance counter
+  settings->changePerformanceDisplay(false); // activate performance measuring
+  PerformanceCounter performance(10);        // add performance counter
 
   // frames per second limit (0 for unlimited)
-  settings->changeFrameLimit(0);
+  settings->changeFrameLimit(20);
 
   /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   int frames = 0;
@@ -181,7 +182,7 @@ int main(int argc, char **argv)
 
     //////////////////////////////////////////////////////////////////////////////////////
     // run CUDA kernel to generate vertex positions
-    runCuda(cam, settings->getAllHostParams(), settings->getDeviceMolecule());
+    runCuda(cam, settings->getAllHostParams(), settings->getDeviceMolecule(), settings->getDeviceColors());
     //////////////////////////////////////////////////////////////////////////////////////
 
     //////////////////////////////////////////////////////////////////////////////////////

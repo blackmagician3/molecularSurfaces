@@ -34,6 +34,8 @@ struct SimulationParams
     float depth_min;
     float depth_max;
 
+    // coloring
+    uint colorScheme;
     // for debugging
     bool debug_mode;
     double mouse_x_pos;

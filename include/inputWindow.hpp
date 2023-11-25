@@ -9,7 +9,7 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <application_settings.hpp>
-#include "camera.h"
+#include "camera.hpp"
 
 // Camera
 Camera cam(0.0f, 0.0f, 8.0f);
@@ -123,6 +123,11 @@ public:
         {
             cam.resetCamera(glm::vec3(0.0f, 0.0f, 8.0f));
         }
+        if (key == GLFW_KEY_B && action == GLFW_PRESS)
+        {
+            printf("atom radius of molecule[0]: %f\n", linkedSettings->molecule[0].w);
+            printf("solvent radius: %f\n", linkedSettings->getSolventRadius());
+        }
 
         if (settings_updated)
             linkedSettings->update();
@@ -208,7 +213,7 @@ void processInput(GLFWwindow *window, AppSettings *settings, float deltaTime)
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, GL_TRUE);
 
-    // Up & Down Arrows to change SOlvent Radius
+    // Up & Down Arrows to change Solvent Radius
     if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
     {
         settings->addToSolventRadius(0.01f);

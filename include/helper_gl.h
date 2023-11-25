@@ -7,7 +7,7 @@
 #include <sstream>
 #include <iostream>
 #include "shader.h"
-#include "camera.h"
+#include "camera.hpp"
 
 // TODO add to config
 const unsigned int SCR_WIDTH = 1920;

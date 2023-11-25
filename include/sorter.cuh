@@ -7,6 +7,7 @@ typedef struct
 {
     float4 location;
     int id;
+    float distance;
 } Atom;
 
 __host__ __device__ void swap(Atom *xp, Atom *yp)
