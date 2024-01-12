@@ -55,6 +55,8 @@ const unsigned int window_height = 1080;
 
 const char application_name[] = "Molecular Surfaces";
 
+extern cudaGraphicsResource_t cuda_resource_1, cuda_resource_2;
+
 // timing
 float deltaTime = 0.0f; // time between current frame and last frame
 float lastFrame = 0.0f;
@@ -143,9 +145,11 @@ int main(int argc, char **argv)
   quadTex.use();                                  // use shader
   int VAO = quadBuffers();                        // create and bind buffers for quad (used to display the molecule using a texture)
 
-  settings->setColorScheme(1); // chooses color scheme for visualization
-  settings->update();          // copy parameters to GPU
-  settings->loadMolecule();    // load molecule data
+  // std::string moleculePath = "C:/Users/lukab/OneDrive/Dokumente/repos/molecularSurfaces/testMolecules/3i40.pdb";
+  std::string moleculePath = "";
+  settings->setColorScheme(1);                              // chooses color scheme for visualization
+  settings->loadMolecule(moleculePath);                     // load molecule data
+  cam->intializeCameraPosition(settings->getCameraFocus()); // setup camera
 
   // performance measuring (disabled by default)
   settings->changePerformanceDisplay(false); // activate performance measuring
@@ -167,10 +171,6 @@ int main(int argc, char **argv)
     ++frames;
     //////////////////////////////////////////////////////////////////////////////////////
     // performance measuring
-    if (settings->getPerformanceDisplay())
-    {
-      performance.runMeasuring(deltaTime);
-    }
 
     //////////////////////////////////////////////////////////////////////////////////////
 
@@ -191,7 +191,7 @@ int main(int argc, char **argv)
     // display molecule
     draw(window_width, window_height, VAO, &texture_1);
 
-    //////////////////////////////////////////////////////////////////////////////////////#
+    //////////////////////////////////////////////////////////////////////////////////////
 
     // limit frames per second
     // TODO: sleep function differs under ubuntu and windows

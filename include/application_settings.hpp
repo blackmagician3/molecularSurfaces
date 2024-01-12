@@ -17,6 +17,8 @@
 #define ELEMENTS 112
 #endif
 
+// Default camera value
+const float CAMOFFSET = 0;
 typedef unsigned int uint;
 
 class AppSettings
@@ -28,6 +30,7 @@ private:
     unsigned int frameLimit;
     std::string recentFilePath;
 
+    float4 focusPoint;
     // parameters for both CPU and GPU
     SimulationParams host_params;
 
@@ -45,8 +48,8 @@ public:
         host_params.window_height = height;
 
         host_params.numAtoms = 10;
-        host_params.k_nearest = 10;
-        host_params.solvent_radius = 0.2;
+        host_params.k_nearest = 7;
+        host_params.solvent_radius = 1.4;
         host_params.epsilon = 0.01;
         host_params.epsilon_squared = host_params.epsilon * host_params.epsilon;
         host_params.depth_min = 0.1f;
@@ -72,12 +75,12 @@ public:
     void initialize()
     {
         // TODO: currently using registers for nearest atoms grouping per thread -> register size is shared among all threads per block -> adjust threads per block
+        // TODO: calculated threads per block currently to high
         ThreadBlock threads = calcThreadBlock(host_params.window_width, host_params.window_height);
-        // host_params.thread_x = threads.threadX;
-        // host_params.thread_y = threads.threadY;
+        host_params.thread_x = threads.threadX;
+        host_params.thread_y = threads.threadY;
 
-        host_params.thread_x = 4;
-        host_params.thread_y = 4;
+        printf("INFO: kernel layout set to %i threads per block (%i in x, %i in y)\n", host_params.thread_x * host_params.thread_y, host_params.thread_x, host_params.thread_y);
         initialized = true;
     }
     void loadMolecule(std::string path = "")
@@ -97,8 +100,7 @@ public:
         if (path.length() == 0 && recentFilePath.length() == 0)
         {
             host_params.numAtoms = 10;
-            host_params.k_nearest = 10;
-
+            host_params.solvent_radius = 0.3;
             molecule = new float4[host_params.numAtoms];
             molecule[0] = make_float4(-0.4, 0.0, 0.0, 0.2);
             molecule[1] = make_float4(0.5, 0.0, 0.0, 0.3);
@@ -123,6 +125,13 @@ public:
             colors[8] = 0xee2010;
             colors[9] = 0x202020;
 
+            focusPoint = make_float4(0.15, 0.05, -1.35, -1.35);
+            // float tanValue = 1 / atan((22.5) * M_PI / 180);
+            float Zoom = 10;
+            float zOffset = max(1.5 * Zoom, 1.5 * Zoom);
+            zOffset = max(zOffset, (1.675 * Zoom));
+            focusPoint.w = zOffset + CAMOFFSET;
+
             // extend atom radi by solvent radius
             addToRadius(molecule, host_params.numAtoms, host_params.solvent_radius);
         }
@@ -142,47 +151,94 @@ public:
             unsigned int hetatm = 0;
             std::string delimiter = " ";
             std::string word;
+            float4 box_min = {-INFINITY, -INFINITY, -INFINITY, 0};
+            float4 box_max = {INFINITY, INFINITY, INFINITY, 0};
             for (std::string tmp; std::getline(input_file, tmp);)
             {
                 std::string word = tmp.substr(0, 6);
+                bool is_atom = false;
                 if (word == "ATOM  ")
                 {
                     ++atom;
+                    is_atom = true;
                 }
                 else if (word == "HETATM")
                 {
                     ++hetatm;
+                    is_atom = true;
+                }
+
+                if (is_atom)
+                {
+                    // read coordinates
+                    float x_coord = std::stof(tmp.substr(30, 8));
+                    float y_coord = std::stof(tmp.substr(38, 8));
+                    float z_coord = std::stof(tmp.substr(46, 8));
+                    if (x_coord > box_min.x)
+                        box_min.x = x_coord;
+                    if (x_coord < box_max.x)
+                        box_max.x = x_coord;
+                    if (y_coord > box_min.y)
+                        box_min.y = y_coord;
+                    if (y_coord < box_max.y)
+                        box_max.y = y_coord;
+                    if (z_coord > box_min.z)
+                        box_min.z = z_coord;
+                    if (z_coord < box_max.z)
+                        box_max.z = z_coord;
                 }
             }
-            host_params.numAtoms = atom + hetatm;
-            host_params.k_nearest = host_params.numAtoms;
 
+            // allocate arrays for molecule information
+            host_params.numAtoms = atom + hetatm;
             molecule = new float4[host_params.numAtoms];
             colors = new uint[host_params.numAtoms];
+
+            // setup initial camera position to cover the whole molecule
+            // TODO: synchronize Zoom Default Value with Camera class
+            float Zoom = 0;
+            focusPoint = 0.5 * (box_min + box_max);
+            float zOffset = max(abs(box_max.x - box_min.x) * Zoom, abs(box_max.y - box_min.y) * Zoom);
+            zOffset = max(zOffset, 0.5 * abs(box_max.z - box_min.z));
+            focusPoint.w = zOffset + CAMOFFSET;
+            host_params.depth_max = zOffset + CAMOFFSET;
+
+            input_file.clear();
+            input_file.seekg(0, input_file.beg);
 
             // read file
             std::string keyword;
             // std::string atom_name;
             std::string element_symbol;
-            unsigned int n = 0;
-            for (std::string line; getline(input_file, line);)
+
+            uint l = 0;
+            for (std::string line; std::getline(input_file, line);)
             {
                 keyword = line.substr(0, 6);
                 if (keyword == "ATOM  " || keyword == "HETATM")
                 {
+                    uint color = (uint)0x000000;
+                    float radius = 0.1f;
+
                     element_symbol = line.substr(76, 2);
-                    float radius;
-                    uint color;
+
+                    // remove spaces from element symbol
+                    std::string::iterator end_pos = std::remove(element_symbol.begin(), element_symbol.end(), ' ');
+                    element_symbol.erase(end_pos, element_symbol.end());
+
+                    // find color and radius of atom
                     findEntry(element_symbol, host_params.colorScheme, &radius, &color);
 
-                    molecule[n] = make_float4(std::stof(line.substr(30, 8)),        // x - Coordinates
+                    // set molecule entry
+                    molecule[l] = make_float4(std::stof(line.substr(30, 8)),        // x - Coordinates
                                               std::stof(line.substr(38, 8)),        // y - Coordinates
                                               std::stof(line.substr(46, 8)),        // z - Coordinates
-                                              radius + host_params.solvent_radius); // atom radius
-                    colors[n] = color;
+                                              radius + host_params.solvent_radius); // atom radius extended by solvent radius
+                    colors[l] = color;
+                    l++;
                 }
-                ++n;
             }
+            printf("INFO: molecule loaded from path, size = %i atoms\n", host_params.numAtoms);
         }
 
         // copy data to GPU
@@ -191,6 +247,7 @@ public:
         checkCudaErrors(cudaMalloc((void **)&(colors_device), host_params.numAtoms * sizeof(uint)));
         checkCudaErrors(cudaMemcpy(colors_device, colors, host_params.numAtoms * sizeof(uint), cudaMemcpyHostToDevice));
 
+        update();
         // TODO: implement loader, remove test molecule
         molecule_loaded = true;
     }
@@ -346,6 +403,11 @@ public:
     unsigned int getFrameLimit()
     {
         return frameLimit;
+    }
+
+    float4 getCameraFocus()
+    {
+        return focusPoint;
     }
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////

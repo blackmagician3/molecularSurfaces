@@ -12,7 +12,7 @@
 #include "camera.hpp"
 
 // Camera
-Camera cam(0.0f, 0.0f, 8.0f);
+Camera cam(0.0f, 0.0f, 20.0f);
 void framebuffer_size_callback(GLFWwindow *window, int width, int height)
 {
     glViewport(0, 0, width, height);

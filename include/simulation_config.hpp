@@ -105,7 +105,7 @@ ThreadBlock calcThreadBlock(unsigned int width, unsigned int height)
     struct cudaDeviceProp props;
     cudaGetDeviceProperties(&props, device);
 
-    unsigned int maxT = props.maxThreadsPerBlock;
+    unsigned int maxT = floor(props.maxThreadsPerBlock / 2);
 
     std::vector<unsigned int> divWidth = findDivs(width);
     std::vector<unsigned int> divHeight = findDivs(height);

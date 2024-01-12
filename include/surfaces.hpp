@@ -38,6 +38,17 @@ struct pairFloat4
     float4 values[2];
 };
 
+// TODO: change wording case_id -> collisionType
+struct hitInfo
+{
+    uint bondId1;
+    uint bondId2;
+    uint bondId3;
+    uint collisionType;
+    float4 surfaceHit;
+    float4 rayPos;
+};
+
 __host__ __device__ float calcSignedDistanceSphere(float4 p, float4 atom)
 {
     return length(p - atom) - atom.w;
@@ -69,7 +80,7 @@ __host__ __device__ float calcSignedDistanceOuter(float4 p, float4 *atoms, int a
     }
     return dist;
 }
-__host__ __device__ float calcSignedDistanceOuterWithNearestAtom(float4 p, float4 *atoms, int atomCount, float4 *surface_orientation, uint *closestId)
+__host__ __device__ float calcSignedDistanceOuterWithNearestAtom(float4 p, float4 *atoms, int atomCount, hitInfo *surfacePointData)
 {
     int nearId = 0;
     float dist = calcSignedDistanceSphere(p, atoms[0]);
@@ -80,8 +91,7 @@ __host__ __device__ float calcSignedDistanceOuterWithNearestAtom(float4 p, float
         if (tmp > dist)
             nearId = i;
     }
-    *closestId = nearId;
-    *surface_orientation = atoms[nearId];
+    surfacePointData->bondId1 = nearId;
 
     return dist;
 }
@@ -116,76 +126,35 @@ __host__ __device__ int maxId(Atom array[], int length)
  * @param number_atoms
  * @param nearest_atoms
  * @param nearest_ids
- * @param nearest_count
+ * @param params.k_nearest
  * @param position
  */
-__host__ __device__ void findNearestAtoms(float4 *molecule_data, uint number_atoms, Atom nearest_atoms[], int nearest_count, float4 position, int x = 0, int y = 0)
+__host__ __device__ void findNearestAtoms(float4 *molecule_data, uint number_atoms, Atom nearest_atoms[], uint nearest_count, float4 position, int x = 0, int y = 0)
 {
-    for (int i = 0; i < nearest_count; i++)
+    for (uint i = 0; i < nearest_count; i++)
     {
         float dist = calcSignedDistanceSphere(position, molecule_data[i]);
 
         nearest_atoms[i].id = i;
-        nearest_atoms[i].location.w = dist;
+        nearest_atoms[i].distance = dist;
     }
-    for (int i = nearest_count; i < number_atoms; i++)
+    for (uint i = nearest_count; i < number_atoms; i++)
     {
-        int id = maxId(nearest_atoms, nearest_count);
+        selectionSort(nearest_count, nearest_atoms);
         float dist = calcSignedDistanceSphere(position, molecule_data[i]);
 
-        if ((dist < nearest_atoms[id].location.w))
+        if ((dist < nearest_atoms[nearest_count - 1].distance))
         {
-            nearest_atoms[id].location.w = dist;
-            nearest_atoms[id].id = i;
+            nearest_atoms[nearest_count - 1].distance = dist;
+            nearest_atoms[nearest_count - 1].id = i;
         }
     }
     selectionSort(nearest_count, nearest_atoms);
 
-    for (int i = 0; i < nearest_count; i++)
+    for (uint i = 0; i < nearest_count; i++)
     {
         nearest_atoms[i].location = molecule_data[nearest_atoms[i].id];
     }
-}
-// __host__ __device__ void findNearestAtoms(float4 *molecule_data, uint number_atoms, Atom nearest_atoms[], int nearest_count, float4 position, int x = 0, int y = 0)
-// {
-//     for (int i = 0; i < nearest_count; i++)
-//     {
-//         float dist = calcSignedDistanceSphere(position, molecule_data[i]);
-
-//         nearest_atoms[i].id = i;
-//         nearest_atoms[i].distance = dist;
-//     }
-//     for (int i = nearest_count; i < number_atoms; i++)
-//     {
-
-//         int max_id = maxId(nearest_atoms, nearest_count);
-//         float dist = calcSignedDistanceSphere(position, molecule_data[i]);
-
-//         if ((dist < nearest_atoms[max_id].distance))
-//         {
-//             nearest_atoms[max_id].distance = dist;
-//             nearest_atoms[max_id].id = i;
-//         }
-//     }
-//     selectionSort(nearest_count, nearest_atoms);
-
-//     for (int i = 0; i < nearest_count; i++)
-//     {
-//         nearest_atoms[i].location = molecule_data[nearest_atoms[i].id];
-//     }
-// }
-
-/**
- * @brief asserts, that point p lies in the extended radius of both atoms
- *
- * @param p
- * @param atom1
- * @param atom2
- */
-__device__ bool test_predicate2(float4 p, float4 atom1, float4 atom2)
-{
-    bool predicate = (length(p - atom1) > atom1.w) && (length(p - atom2) > atom2.w);
-    return predicate;
 }
 
 /**
@@ -195,7 +164,7 @@ __device__ bool test_predicate2(float4 p, float4 atom1, float4 atom2)
  * @param atom1
  * @param atom2
  */
-__device__ float4 intersectTwoSpheres(float4 p, float4 atom1, float4 atom2)
+__device__ float4 intersectTwoSpheres(float4 p, float4 atom1, float4 atom2, float x, float y)
 {
     // calculate distance to midpoint between atoms (2nd intercept theorem)
     float d = length(atom1 - atom2);
@@ -214,20 +183,10 @@ __device__ float4 intersectTwoSpheres(float4 p, float4 atom1, float4 atom2)
 
     // calculate nearest intersection point
     float4 intersec = m + q * h;
+
     return intersec;
 }
 
-/**
- * @brief assert, that the calculated intersection point for case 2 (sphere-sphere intersection) does...
- * a) lie within the surface spanned by the atom centers and the current position
- * b) lie on the surface
- * @param p current position/sample point
- * @param c1 first atom
- * @param c2 second atom
- * @param intersect intersection point
- * @param atoms array of atoms
- * @param epsilon
- */
 __device__ bool in_triangle(float4 p, float4 c1, float4 c2, float4 intersect)
 {
     c1 -= p;
@@ -237,8 +196,12 @@ __device__ bool in_triangle(float4 p, float4 c1, float4 c2, float4 intersect)
     float4 vecU = cross(c1, c2);
     float4 vecV = cross(c2, intersect);
     float4 vecW = cross(intersect, c1);
-    bool triangle = (dot(vecU, vecV) >= 0) && (dot(vecV, vecW) >= 0);
-    return triangle;
+    if (dot(vecU, vecV) < 0)
+        return false;
+    if (dot(vecV, vecW) < 0)
+        return false;
+    else
+        return true;
 }
 
 __device__ pairFloat4 calculate_case3(float4 p, float4 c1, float4 c2, float4 c3, float4 surface_hit, Atom atoms[], int atom_count, float epsilon)
@@ -267,126 +230,107 @@ __device__ pairFloat4 calculate_case3(float4 p, float4 c1, float4 c2, float4 c3,
     return hit;
 }
 
-__device__ unsigned int getAtomColor(uint case_id, uint nearestId, uint *atomColors, uint colorScheme)
+__device__ float computeSurface(float4 ray_pos, float4 *molecule, uint *colors, SimulationParams params, hitInfo *surfacePointData, int x = 0, int y = 0)
 {
-    uint color;
-    if (colorScheme != 0 && case_id == 1)
-    {
-        color = atomColors[nearestId];
-        return color;
-    }
-    else
-    {
-        switch (case_id)
-        {
-        case 0: // SAS color
-            color = (uint)0x0000FF;
-            break;
-        case 1: // color for case 1 (single atom)
-            color = (uint)0x3232FF;
-            break;
-        case 2: // color for case 2 (arc between two atoms)
-            color = (uint)0x00FF00;
-            break;
-        case 3: // color for case 3 (toroid between three atoms)
-            color = (uint)0xFF0000;
-            break;
-        case 4: // color for debugging
-            color = (uint)0xFF00FF;
-            break;
-        default:
-            break;
-        }
-        return color;
-    }
-}
 
-__device__ float computeSurface(float4 ray_pos, float4 *molecule, uint *colors, SimulationParams params, bool *hit, uint *color, float4 *surface_orientation, int *case_id, int x = 0, int y = 0)
-{
-    ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    // 0 // variables/constants
+    // ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // // 0 // variables/constants
     float f_sdf = 0; // current distance to SAS
 
-    uint nearestAtomId = 0;
-    *case_id = 0;
-    ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    surfacePointData->collisionType = 0;
+    // ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    // 1 // determine signed distance to closest atom
+    // ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // // 1 // determine signed distance to closest atom
 
-    f_sdf = calcSignedDistanceOuterWithNearestAtom(ray_pos, molecule, params.numAtoms, surface_orientation, &nearestAtomId);
+    f_sdf = calcSignedDistanceOuterWithNearestAtom(ray_pos, molecule, params.numAtoms, surfacePointData);
 
-    // *color = c_case0;
-    *case_id = 0;
-    // exit calculation if position of sample point p outside of SAS
+    // // if (x == 0 && y > 826 && y < 831)
+    // // {
+    // //     printf("test at y = %i-a\n", y);
+    // // }
+
+    // if (x == 0 && y == 827)
+    // {
+    //     for (int i = 0; i < params.numAtoms; i++)
+    //     {
+    //         printf("atom %i is at: %.3f, %.3f, %.3f with a radius of %.3f\n", i, molecule[i].x, molecule[i].y, molecule[i].z, molecule[i].w);
+    //     }
+    // }
+
     if (f_sdf < 0)
     {
+        //     // if (x == 0 && y > 826 && y < 831)
+        //     // {
+        //     //     printf("test at y = %i-b\n", y);
+        //     // }
+        //     ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-        ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+        //     ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+        //     // 2 // determine k closest points
 
-        ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
-        // 2 // determine k closest points
-
-        // allocate array for ids of k atoms closest to p
-        unsigned int nearest_count = min(params.k_nearest, params.numAtoms);
-
-        // find the k nearest atoms
+        //     // allocate array for ids of k atoms closest to p
+        // TODO: add checks in settings, that k_nearest is smaller or equal to numAtoms
+        // unsigned int nearest_count = min(params.k_nearest, params.numAtoms);
+        unsigned int nearest_count = (uint)params.k_nearest;
+        //     // find the k nearest atoms
         Atom nearest_atoms[GROUP_SIZE];
+        //     // if (x == 0 && y > 826 && y < 831)
+        //     // {
+        //     //     printf("test at y = %i-c\n", y);
+        //     // }
         findNearestAtoms(molecule, params.numAtoms, nearest_atoms, nearest_count, ray_pos);
 
-        ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
-        // 3 // intersection with one atom
+        //     ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+        //     // 3 // intersection with one atom
 
-        // TODO case 0 - when using voxels for nearest neighbours, there might be zero neighbours
-        // group of participating atoms is ordered, nearest_atoms[0] contains the id of the closest atom
+        //     // TODO case 0 - when using voxels for nearest neighbours, there might be zero neighbours
+        //     // group of participating atoms is ordered, nearest_atoms[0] contains the id of the closest atom
 
         float4 dir = normalize(ray_pos - nearest_atoms[0].location);
-
         float4 surface_hit = nearest_atoms[0].location + nearest_atoms[0].location.w * dir;
 
-        // if (params.debug_mode && (x == (int)params.mouse_x_pos) && (y == (int)params.mouse_y_pos))
-        // {
-        //     printf("nearest atom radius:  %.3f vs solvent radius: %.3f\n", nearest_atoms[0].location.w, params.solvent_radius);
-        // }
-        *case_id = 1;
+        surfacePointData->collisionType = 1;
+        //     // if (params.debug_mode && (x == (int)params.mouse_x_pos) && (y == (int)params.mouse_y_pos))
+        //     // {
+        //     //     printf("nearest atom radius:  %.3f vs solvent radius: %.3f\n", nearest_atoms[0].location.w, params.solvent_radius);
+        //     // }
 
-        if (abs(calcSignedDistanceOuter(surface_hit, nearest_atoms, params.numAtoms)) > params.epsilon)
+        // TODO: check validity: signed distance calculation limited to k nearest atoms
+        if (abs(calcSignedDistanceOuter(surface_hit, nearest_atoms, params.k_nearest)) > params.epsilon)
         {
+            //         ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-            ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-            ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
-            // 4 // intersection with two atoms (arc)
+            //         ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+            //         // 4 // intersection with two atoms (arc)
 
             bool surface_found = false;
             // calculate all intersection points for the group of nearest atoms
-            for (unsigned int i = 0; i < nearest_count - 1; i++)
+            for (unsigned int i = 0; i < params.k_nearest - 1; i++)
             {
-                for (unsigned int j = i + 1; j < nearest_count; j++)
+                for (unsigned int j = i + 1; j < params.k_nearest; j++)
                 {
-                    surface_hit = intersectTwoSpheres(ray_pos, nearest_atoms[i].location, nearest_atoms[j].location);
+                    surface_hit = intersectTwoSpheres(ray_pos, nearest_atoms[i].location, nearest_atoms[j].location, x, y);
 
                     // check if points lie in correct section (arc) of the surface
                     bool triangle = in_triangle(ray_pos, nearest_atoms[i].location, nearest_atoms[j].location, surface_hit);
                     // check if point lies on the surface
-                    bool surface = (abs(calcSignedDistanceOuter(surface_hit, nearest_atoms, nearest_count)) < params.epsilon);
+                    bool surface = (abs(calcSignedDistanceOuter(surface_hit, nearest_atoms, params.k_nearest)) < params.epsilon);
                     if (triangle && surface)
                     {
                         surface_found = true;
-                        *surface_orientation = surface_hit;
-                        *case_id = 2;
-                        if (params.debug_mode && (x == (int)params.mouse_x_pos) && (y == (int)params.mouse_y_pos))
-                        {
-                            printf("atom i radius:  %.3f, atom j radius: %.3f, vs solvent radius: %.3f\n", nearest_atoms[i].location.w, nearest_atoms[j].location.w, params.solvent_radius);
-                        }
+                        surfacePointData->collisionType = 2;
+                        surfacePointData->bondId1 = nearest_atoms[j].id;
+                        surfacePointData->bondId2 = nearest_atoms[i].id;
+                        surfacePointData->surfaceHit = surface_hit;
+
                         break;
                     }
                 }
                 if (surface_found)
                 {
-                    *surface_orientation = surface_hit;
                     break;
                 }
             }
@@ -398,31 +342,40 @@ __device__ float computeSurface(float4 ray_pos, float4 *molecule, uint *colors, 
             if (!surface_found)
             {
                 bool first = true;
-                for (unsigned int i = 0; i < nearest_count - 2; i++)
+                for (unsigned int i = 0; i < params.k_nearest - 2; i++)
                 {
-                    for (unsigned int j = i + 1; j < nearest_count - 1; j++)
+                    for (unsigned int j = i + 1; j < params.k_nearest - 1; j++)
                     {
-                        for (unsigned int k = j + 1; k < nearest_count; k++)
+                        for (unsigned int k = j + 1; k < params.k_nearest; k++)
                         {
-                            pairFloat4 s_pot = calculate_case3(ray_pos, nearest_atoms[i].location, nearest_atoms[j].location, nearest_atoms[k].location, surface_hit, nearest_atoms, nearest_count, params.epsilon);
+                            pairFloat4 s_pot = calculate_case3(ray_pos, nearest_atoms[i].location, nearest_atoms[j].location, nearest_atoms[k].location, surface_hit, nearest_atoms, params.k_nearest, params.epsilon);
 
                             // every case 3 has two potential surface points. loop over both and determine it's distance to the current position.
-                            // -> bool first ensures that both distances are tested, if both points of a potential pair lies on the surface
-                            // -> the 4th component of the final surface point stores the distance of the previous calculated point to the position
+                            // -> bool first ensures that both distances are tested, if both points of a potential pair lie on the surface
+                            // -> the 4th component of the final surface point stores the distance of the previous calculated point
                             for (unsigned int n = 0; n < 2; n++)
                             {
-                                if (abs(calcSignedDistanceOuter(s_pot.values[n], nearest_atoms, nearest_count)) < params.epsilon)
+                                if (abs(calcSignedDistanceOuter(s_pot.values[n], nearest_atoms, params.k_nearest)) < params.epsilon)
                                 {
+
                                     surface_found = true;
                                     float dist = length(ray_pos - s_pot.values[n]);
                                     if (first)
                                     {
+                                        surfacePointData->bondId1 = nearest_atoms[i].id;
+                                        surfacePointData->bondId2 = nearest_atoms[j].id;
+                                        surfacePointData->bondId3 = nearest_atoms[k].id;
+
                                         surface_hit = s_pot.values[n];
                                         surface_hit.w = length(ray_pos - s_pot.values[n]);
                                         first = false;
                                     }
                                     else if (dist < surface_hit.w)
                                     {
+                                        surfacePointData->bondId1 = nearest_atoms[i].id;
+                                        surfacePointData->bondId2 = nearest_atoms[j].id;
+                                        surfacePointData->bondId3 = nearest_atoms[k].id;
+
                                         surface_hit = s_pot.values[n];
                                         surface_hit.w = length(ray_pos - s_pot.values[n]);
                                     }
@@ -433,16 +386,15 @@ __device__ float computeSurface(float4 ray_pos, float4 *molecule, uint *colors, 
                 }
                 if (surface_found)
                 {
-                    *surface_orientation = surface_hit;
-                    *case_id = 3;
-                    // if (params.debug_mode && (x == (int)params.mouse_x_pos) && (y == (int)params.mouse_y_pos))
-                    // {
-                    //     printf("case3 found at (%f, %f, %f) for pos (%f, %f, %f)\n", surface_hit.x, surface_hit.y, surface_hit.z, ray_pos.x, ray_pos.y, ray_pos.z);
-                    // }
+                    surfacePointData->surfaceHit = surface_hit;
+                    surfacePointData->collisionType = 3;
+                    // surfacePointData->bondId1 = nearest_atoms[0].id;
+                    // surfacePointData->bondId2 = nearest_atoms[1].id;
+                    // surfacePointData->bondId3 = nearest_atoms[2].id;
                 }
                 else
                 {
-                    *case_id = 4;
+                    surfacePointData->collisionType = 4;
                     if (params.debug_mode && (x == (int)params.mouse_x_pos) && (y == (int)params.mouse_y_pos))
                     {
                         printf("no viable case3 point found\n");
@@ -452,8 +404,6 @@ __device__ float computeSurface(float4 ray_pos, float4 *molecule, uint *colors, 
             f_sdf = -1 * length(surface_hit - ray_pos);
         }
     }
-    *color = getAtomColor(*case_id, nearestAtomId, colors, params.colorScheme);
-
     // ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
     return f_sdf;
 }

@@ -49,12 +49,45 @@ __host__ __device__ void selectionSort(int n, Atom array[])
         // Find the minimum element in unsorted array
         min_idx = i;
         for (int j = i + 1; j < n; j++)
-            if (array[j].location.w < array[min_idx].location.w)
+            if (array[j].distance < array[min_idx].distance)
                 min_idx = j;
 
         // Swap the found minimum element with the first element
         swap(&array[min_idx], &array[i]);
+    }
+}
+__host__ __device__ void sortVector(int length, float array[])
+{
+    if (length != 3)
+        return;
+    if (array[0] > array[2])
+        swap(&array[0], &array[2]);
+    if (array[0] > array[1])
+        swap(&array[0], &array[1]);
+    if (array[1] > array[2])
+        swap(&array[1], &array[2]);
+}
 
+__host__ __device__ void sortParallelVector(int length, float array[], int ids[])
+{
+    if (length != 3)
+        return;
+    if (array[0] > array[2])
+    {
+        swap(&array[0], &array[2]);
+        swap(&ids[0], &ids[2]);
+    }
+
+    if (array[0] > array[1])
+    {
+        swap(&array[0], &array[1]);
+        swap(&ids[0], &ids[1]);
+    }
+
+    if (array[1] > array[2])
+    {
+        swap(&array[1], &array[2]);
+        swap(&ids[1], &ids[2]);
     }
 }
 

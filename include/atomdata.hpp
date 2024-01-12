@@ -140,22 +140,16 @@ const entry pse[ELEMENTS] = {
     {"Rg", .0f, 1.21f, .0f, (uint)0xffc0cb, (uint)0xffc0cb, (uint)0xffc0cb, (uint)0xffb6c1, (uint)0xffb6c1, (uint)0xffb6c1},
     {"Cn", .0f, 1.22f, .0f, (uint)0xffc0cb, (uint)0xffc0cb, (uint)0xffc0cb, (uint)0xffb6c1, (uint)0xffb6c1, (uint)0xffb6c1}};
 
-// struct colorRGB color_converter(uint hexValue)
-// {
-//     color.r = ((hexValue >> 16) & 0xFF) / 255.0; // Extract the RR byte
-//     color.g = ((hexValue >> 8) & 0xFF) / 255.0;  // Extract the GG byte
-//     color.b = ((hexValue) & 0xFF) / 255.0;       // Extract the BB byte
-//     return (color);
-// }
-
 void findEntry(std::string symbol, uint colorScheme, float *radius_out, uint *color_out)
 {
-    uint n;
+
+    uint n = 0;
     for (uint i = 0; i < ELEMENTS; i++)
     {
         // compare symbols
-        if (!symbol.compare(pse[i].symbol))
+        if (symbol.compare(pse[i].symbol) == 0)
         {
+
             n = i;
             break;
         }
@@ -184,6 +178,7 @@ void findEntry(std::string symbol, uint colorScheme, float *radius_out, uint *co
         *color_out = pse[n].cPubChem;
         break;
     default:
+        *color_out = 0x000000;
         break;
     }
 }

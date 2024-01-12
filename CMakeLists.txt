@@ -142,11 +142,13 @@ add_dependencies(${PROJECT_NAME} copy_shaders)
 # Request that particles be built with -std=c++17
 # As this is a public compile feature anything that links to
 # particles will also build with -std=c++17
+# TODO: test rdc (shouldnt be required while header only)
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
 target_compile_options(${PROJECT_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:
                         --generate-line-info
+                        # --device-debug
                         --use_fast_math
-                        --relocatable-device-code=true
+                        # --relocatable-device-code=true
                         >)
 
 # Set CUDA architecture
