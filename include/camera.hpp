@@ -42,6 +42,9 @@ public:
 	glm::vec3 WorldUp;
 	glm::vec3 Focus;
 
+	glm::vec3 mouseAxisVertical;
+	glm::vec3 mouseAxisHorizontal;
+
 	// camera options
 	float MovementSpeed;
 	float MouseSensitivity;
@@ -105,14 +108,9 @@ public:
 		yOffset = yOffset + yoffset * MouseSensitivity;
 		yOffset = overflowInRange(yOffset, 0, 2 * M_PI);
 
-		// step1: find rotation axis
-
-		glm::vec3 axisVerticalMouse = glm::normalize(Focus + Up);
-		glm::vec3 axisHorizontalMouse = glm::normalize(Focus + Right);
-
 		// express rotation with quaternions
-		glm::quat rotateVertical = glm::angleAxis(glm::radians(-xoffset), axisVerticalMouse);
-		glm::quat rotateHorizontal = glm::angleAxis(glm::radians(-yoffset), axisHorizontalMouse);
+		glm::quat rotateVertical = glm::angleAxis(glm::radians(-xoffset), mouseAxisVertical);
+		glm::quat rotateHorizontal = glm::angleAxis(glm::radians(-yoffset), mouseAxisHorizontal);
 
 		// cast
 		glm::mat4 rot = glm::mat4(1.0);
@@ -141,7 +139,15 @@ public:
 	{
 		Focus = glm::vec3(cameraStart.x, cameraStart.y, cameraStart.z);
 		Position = glm::vec3(cameraStart.x, cameraStart.y, cameraStart.z + cameraStart.w);
+
 		updateCameraVectors();
+		updateMouseAxis();
+	}
+
+	void updateMouseAxis()
+	{
+		mouseAxisVertical = glm::normalize(Up);
+		mouseAxisHorizontal = glm::normalize(Right);
 	}
 
 	// processes input received from a mouse scroll-wheel event. Only requires input on the vertical wheel-axis

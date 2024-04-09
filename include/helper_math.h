@@ -141,6 +141,97 @@ inline __host__ __device__ float4 make_float4(uint4 a)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// partial constructors
+////////////////////////////////////////////////////////////////////////////////
+inline __host__ __device__ float getFloat4Component(float4 *v, int i)
+{
+    switch (i)
+    {
+    case 0:
+        return v->x;
+    case 1:
+        return v->y;
+    case 2:
+        return v->z;
+    case 3:
+        return v->w;
+    }
+    assert(0);
+}
+
+inline __host__ __device__ float4 makeFloat4Component(float value, int i)
+{
+    switch (i)
+    {
+    case 0:
+        return make_float4(value, 0, 0, 0);
+    case 1:
+        return make_float4(0, value, 0, 0);
+    case 2:
+        return make_float4(0, 0, value, 0);
+    case 3:
+        return make_float4(0, 0, 0, value);
+    }
+    assert(0);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// greater than (for any component)
+////////////////////////////////////////////////////////////////////////////////
+
+inline __host__ __device__ bool operator>(float3 a, float3 b)
+{
+    return (a.x > b.x) || (a.y > b.y) || (a.z > b.z);
+}
+
+inline __host__ __device__ bool operator>(float4 a, float4 b)
+{
+    return (a.x > b.x) || (a.y > b.y) || (a.z > b.z);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// greater than or equal (for any component)
+////////////////////////////////////////////////////////////////////////////////
+
+inline __host__ __device__ bool operator>=(float3 a, float3 b)
+{
+    return (a.x >= b.x) || (a.y >= b.y) || (a.z >= b.z);
+}
+
+inline __host__ __device__ bool operator>=(float4 a, float4 b)
+{
+    return (a.x >= b.x) || (a.y >= b.y) || (a.z >= b.z);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// smaller than (for any component)
+////////////////////////////////////////////////////////////////////////////////
+
+inline __host__ __device__ bool operator<(float3 a, float3 b)
+{
+    return (a.x < b.x) || (a.y < b.y) || (a.z < b.z);
+}
+
+inline __host__ __device__ bool operator<(float4 a, float4 b)
+{
+    return (a.x < b.x) || (a.y < b.y) || (a.z < b.z);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// smaller than or equal (for any component)
+////////////////////////////////////////////////////////////////////////////////
+
+inline __host__ __device__ bool operator<=(float3 a, float3 b)
+{
+    return (a.x <= b.x) || (a.y <= b.y) || (a.z <= b.z);
+}
+
+inline __host__ __device__ bool operator<=(float4 a, float4 b)
+{
+    return (a.x <= b.x) || (a.y <= b.y) || (a.z <= b.z);
+}
+
+////////////////////////////////////////////////////////////////////////////////
 // negate
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -157,6 +248,57 @@ inline __host__ __device__ float4 operator-(float4 &a)
 ////////////////////////////////////////////////////////////////////////////////
 // addition
 ////////////////////////////////////////////////////////////////////////////////
+inline __host__ __device__ int3 operator+(int3 a, int3 b)
+{
+    return make_int3(a.x + b.x, a.y + b.y, a.z + b.z);
+}
+inline __host__ __device__ void operator+=(int3 &a, int3 b)
+{
+    a.x += b.x;
+    a.y += b.y;
+    a.z += b.z;
+}
+inline __host__ __device__ int3 operator+(int3 a, int b)
+{
+    return make_int3(a.x + b, a.y + b, a.z + b);
+}
+inline __host__ __device__ void operator+=(int3 &a, int b)
+{
+    a.x += b;
+    a.y += b;
+    a.z += b;
+}
+
+inline __host__ __device__ int3 operator+(int b, int3 a)
+{
+    return make_int3(a.x + b, a.y + b, a.z + b);
+}
+
+inline __host__ __device__ int4 operator+(int4 a, int4 b)
+{
+    return make_int4(a.x + b.x, a.y + b.y, a.z + b.z, a.w);
+}
+inline __host__ __device__ void operator+=(int4 &a, int4 b)
+{
+    a.x += b.x;
+    a.y += b.y;
+    a.z += b.z;
+}
+
+inline __host__ __device__ int4 operator+(int4 a, int b)
+{
+    return make_int4(a.x + b, a.y + b, a.z + b, a.w);
+}
+inline __host__ __device__ int4 operator+(int b, int4 a)
+{
+    return make_int4(a.x + b, a.y + b, a.z + b, a.w);
+}
+inline __host__ __device__ void operator+=(int4 &a, int b)
+{
+    a.x += b;
+    a.y += b;
+    a.z += b;
+}
 
 inline __host__ __device__ float3 operator+(float3 a, float3 b)
 {
@@ -213,7 +355,50 @@ inline __host__ __device__ void operator+=(float4 &a, float b)
 ////////////////////////////////////////////////////////////////////////////////
 // subtract
 ////////////////////////////////////////////////////////////////////////////////
-
+inline __host__ __device__ int3 operator-(int3 a, int3 b)
+{
+    return make_int3(a.x - b.x, a.y - b.y, a.z - b.z);
+}
+inline __host__ __device__ void operator-=(int3 &a, int3 b)
+{
+    a.x -= b.x;
+    a.y -= b.y;
+    a.z -= b.z;
+}
+inline __host__ __device__ int3 operator-(int3 a, int b)
+{
+    return make_int3(a.x - b, a.y - b, a.z - b);
+}
+inline __host__ __device__ int3 operator-(int b, float3 a)
+{
+    return make_int3(b - a.x, b - a.y, b - a.z);
+}
+inline __host__ __device__ void operator-=(int3 &a, int b)
+{
+    a.x -= b;
+    a.y -= b;
+    a.z -= b;
+}
+inline __host__ __device__ int4 operator-(int4 a, int4 b)
+{
+    return make_int4(a.x - b.x, a.y - b.y, a.z - b.z, a.w);
+}
+inline __host__ __device__ void operator-=(int4 &a, int4 b)
+{
+    a.x -= b.x;
+    a.y -= b.y;
+    a.z -= b.z;
+}
+inline __host__ __device__ int4 operator-(int4 a, int b)
+{
+    return make_int4(a.x - b, a.y - b, a.z - b, a.w);
+}
+inline __host__ __device__ void operator-=(int4 &a, int b)
+{
+    a.x -= b;
+    a.y -= b;
+    a.z -= b;
+}
 inline __host__ __device__ float3 operator-(float3 a, float3 b)
 {
     return make_float3(a.x - b.x, a.y - b.y, a.z - b.z);
@@ -328,6 +513,16 @@ inline __host__ __device__ void operator/=(float3 &a, float3 b)
     a.y /= b.y;
     a.z /= b.z;
 }
+inline __host__ __device__ float3 operator/(float3 a, int3 b)
+{
+    return make_float3(a.x / (float)b.x, a.y / (float)b.y, a.z / (float)b.z);
+}
+inline __host__ __device__ void operator/=(float3 &a, int3 b)
+{
+    a.x /= (float)b.x;
+    a.y /= (float)b.y;
+    a.z /= (float)b.z;
+}
 inline __host__ __device__ float3 operator/(float3 a, float b)
 {
     return make_float3(a.x / b, a.y / b, a.z / b);
@@ -343,6 +538,16 @@ inline __host__ __device__ float3 operator/(float b, float3 a)
     return make_float3(b / a.x, b / a.y, b / a.z);
 }
 
+inline __host__ __device__ float4 operator/(float4 a, int4 b)
+{
+    return make_float4(a.x / (float)b.x, a.y / (float)b.y, a.z / (float)b.z, a.w);
+}
+inline __host__ __device__ void operator/=(float4 &a, int4 b)
+{
+    a.x /= (float)b.x;
+    a.y /= (float)b.y;
+    a.z /= (float)b.z;
+}
 inline __host__ __device__ float4 operator/(float4 a, float4 b)
 {
     return make_float4(a.x / b.x, a.y / b.y, a.z / b.z, a.w);
@@ -380,6 +585,10 @@ inline __host__ __device__ float4 fminf(float4 a, float4 b)
 {
     return make_float4(fminf(a.x, b.x), fminf(a.y, b.y), fminf(a.z, b.z), fminf(a.w, b.w));
 }
+inline __host__ __device__ int4 min(int4 a, int4 b)
+{
+    return make_int4(min(a.x, b.x), min(a.y, b.y), min(a.z, b.z), min(a.w, b.w));
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 // max
@@ -392,6 +601,10 @@ inline __host__ __device__ float3 fmaxf(float3 a, float3 b)
 inline __host__ __device__ float4 fmaxf(float4 a, float4 b)
 {
     return make_float4(fmaxf(a.x, b.x), fmaxf(a.y, b.y), fmaxf(a.z, b.z), fmaxf(a.w, b.w));
+}
+inline __host__ __device__ int4 max(int4 a, int4 b)
+{
+    return make_int4(max(a.x, b.x), max(a.y, b.y), max(a.z, b.z), max(a.w, b.w));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -565,6 +778,23 @@ inline __host__ __device__ float4 floorf(float4 v)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// ceil
+////////////////////////////////////////////////////////////////////////////////
+
+inline __host__ __device__ float2 ceilf(float2 v)
+{
+    return make_float2(ceilf(v.x), ceilf(v.y));
+}
+inline __host__ __device__ float3 ceilf(float3 v)
+{
+    return make_float3(ceilf(v.x), ceilf(v.y), ceilf(v.z));
+}
+inline __host__ __device__ float4 ceilf(float4 v)
+{
+    return make_float4(ceilf(v.x), ceilf(v.y), ceilf(v.z), v.w);
+}
+
+////////////////////////////////////////////////////////////////////////////////
 // frac - returns the fractional portion of a scalar or each vector component
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -685,4 +915,27 @@ inline __device__ __host__ bool operator!=(const float4 &a, const float4 &b)
     return !(a == b);
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// cast from float to int
+////////////////////////////////////////////////////////////////////////////////
+inline __host__ __device__ int3 castf2i(float3 v)
+{
+    return make_int3((int)v.x, (int)v.y, (int)v.z);
+}
+inline __host__ __device__ int4 castf2i(float4 v)
+{
+    return make_int4((int)v.x, (int)v.y, (int)v.z, (int)v.w);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// cast from int to float
+////////////////////////////////////////////////////////////////////////////////
+inline __host__ __device__ float3 casti2f(int3 v)
+{
+    return make_float3((float)v.x, (float)v.y, (float)v.z);
+}
+inline __host__ __device__ float4 casti2f(int4 v)
+{
+    return make_float4((float)v.x, (float)v.y, (float)v.z, (float)v.w);
+}
 #endif

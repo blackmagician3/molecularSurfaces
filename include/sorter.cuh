@@ -38,6 +38,21 @@ __host__ __device__ void swap(unsigned int *xp, unsigned int *yp)
     *yp = temp;
 }
 
+__host__ __device__ int findFurthestByIndex(Atom array[], int size)
+{
+    int result = 0;
+    float dist_max = array[0].distance;
+    for (int i = 1; i < size; i++)
+    {
+        if (array[i].distance > dist_max)
+        {
+            dist_max = array[i].distance;
+            result = i;
+        }
+    }
+    return result;
+}
+
 // Function to perform Selection Sort
 __host__ __device__ void selectionSort(int n, Atom array[])
 {

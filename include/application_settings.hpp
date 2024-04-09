@@ -9,479 +9,565 @@
 
 #include <raymarching_kernel.cuh>
 #include <simulation_config.hpp>
-#include <string>       // for file/path operations
-#include <fstream>      // for file inputs
-#include <atomdata.hpp> // contains data on atom radii and color schemes
+#include <string>  // for file/path operations
+#include <fstream> // for file inputs
+#include <vector>
+
+#include <pdbLoader.hpp>
+// #include <atomdata.hpp> // contains data on atom radii and color schemes
 
 #ifndef ELEMENTS
 #define ELEMENTS 112
+#endif
+#ifndef MAXTHREADS
+#define MAXTHREADS 512
+#endif
+#ifndef MAXBLOCKS
+#define MAXBLOCKS 65535
 #endif
 
 // Default camera value
 const float CAMOFFSET = 0;
 typedef unsigned int uint;
+extern const int GROUP_SIZE;
 
 class AppSettings
 {
 private:
-    bool initialized;
-    bool molecule_loaded;
-    bool performanceDisplay;
-    unsigned int frameLimit;
-    std::string recentFilePath;
+	bool initialized;
+	bool molecule_loaded;
+	bool performanceDisplay;
+	unsigned int frameLimit;
+	std::string recentFilePath;
+	int voxel_mem;
 
-    float4 focusPoint;
-    // parameters for both CPU and GPU
-    SimulationParams host_params;
+	// parameters for initialization
+	float4 focusPoint;
+
+	// parameters for both CPU and GPU
+	SimulationParams host_params;
+
+	int castVoxelToId(int4 voxel_dim, int4 voxel_id)
+	{
+		int id = (voxel_id.x + voxel_dim.x * (voxel_id.y + voxel_dim.y * voxel_id.z));
+		return id;
+	}
 
 public:
-    // molecule data
-    float4 *molecule;
-    float4 *molecule_device;
-    uint *colors;
-    uint *colors_device;
-    ////////////////////////////////////////////////////////////////////////////////////////////////////////
-    // functions
-    AppSettings(uint width, uint height, uint texture) : initialized(true), molecule_loaded(false), performanceDisplay(false)
-    {
-        host_params.window_width = width;
-        host_params.window_height = height;
+	// molecule data
+	float4 *molecule;
+	float4 *molecule_device;
+	uint *colors_device;
+	int *voxel_data_device;
+	int *voxel_count_device;
 
-        host_params.numAtoms = 10;
-        host_params.k_nearest = 7;
-        host_params.solvent_radius = 1.4;
-        host_params.epsilon = 0.01;
-        host_params.epsilon_squared = host_params.epsilon * host_params.epsilon;
-        host_params.depth_min = 0.1f;
-        host_params.depth_max = 100.0f;
-        host_params.is_SES = true;
+	////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// functions
+	AppSettings(uint width, uint height, uint texture) : initialized(true), molecule_loaded(false), performanceDisplay(false)
+	{
+		host_params.window_width = width;
+		host_params.window_height = height;
 
-        host_params.texture_1 = texture;
+		host_params.numAtoms = 10;
+		host_params.k_nearest = 15;
+		host_params.solvent_radius = 1.4;
+		host_params.solvent_max = 2;
+		host_params.epsilon = 0.01;
+		host_params.epsilon_squared = host_params.epsilon * host_params.epsilon;
+		host_params.use_voxel = true;
+		host_params.depth_min = 0.1f;
+		host_params.depth_max = 100.0f;
+		host_params.is_SES = true;
+		host_params.use_iterative_solver = false;
+		host_params.texture_1 = texture;
 
-        host_params.thread_x = 4;
-        host_params.thread_y = 4;
+		host_params.thread_x = 4;
+		host_params.thread_y = 4;
 
-        molecule = nullptr;
-        molecule_device = nullptr;
+		molecule = nullptr;
+		molecule_device = nullptr;
 
-        host_params.colorScheme = 0;
-        host_params.debug_mode = false;
+		host_params.colorScheme = 0;
+		host_params.debug_mode = false;
 
-        frameLimit = 0;
-        recentFilePath = "";
+		host_params.highlight_radius = 5.0f;
 
-        initialize();
-    }
-    void initialize()
-    {
-        // TODO: currently using registers for nearest atoms grouping per thread -> register size is shared among all threads per block -> adjust threads per block
-        // TODO: calculated threads per block currently to high
-        ThreadBlock threads = calcThreadBlock(host_params.window_width, host_params.window_height);
-        host_params.thread_x = threads.threadX;
-        host_params.thread_y = threads.threadY;
+		frameLimit = 0;
+		recentFilePath = "";
 
-        printf("INFO: kernel layout set to %i threads per block (%i in x, %i in y)\n", host_params.thread_x * host_params.thread_y, host_params.thread_x, host_params.thread_y);
-        initialized = true;
-    }
-    void loadMolecule(std::string path = "")
-    {
-        // reset color scheme and delete privious molecule
-        if (molecule_loaded)
-        {
-            delete[] molecule;
-            delete[] colors;
-        }
+		initialize();
+	}
+	void initialize()
+	{
+		// TODO: currently using registers for nearest atoms grouping per thread -> register size is shared among all threads per block -> adjust threads per block
+		// TODO: calculated threads per block currently to high
+		ThreadBlock threads = calcThreadBlock(host_params.window_width, host_params.window_height);
+		host_params.thread_x = threads.threadX;
+		host_params.thread_y = threads.threadY;
 
-        // default/test molecule
-        if (path.length() > 0)
-        {
-            recentFilePath = path;
-        }
-        if (path.length() == 0 && recentFilePath.length() == 0)
-        {
-            host_params.numAtoms = 10;
-            host_params.solvent_radius = 0.3;
-            molecule = new float4[host_params.numAtoms];
-            molecule[0] = make_float4(-0.4, 0.0, 0.0, 0.2);
-            molecule[1] = make_float4(0.5, 0.0, 0.0, 0.3);
-            molecule[2] = make_float4(0.7, 0.7, 0.0, 0.4);
-            molecule[3] = make_float4(-0.1, 0.7, -0.2, 0.25);
-            molecule[4] = make_float4(-0.3, 0.2, -2.0, 0.5);
-            molecule[5] = make_float4(0.1, 0.7, 0.3, 0.1);
-            molecule[6] = make_float4(0.9, -0.2, 0.3, 0.1);
-            molecule[7] = make_float4(-0.1, 0.8, -3, 0.6);
-            molecule[8] = make_float4(-0.6, -0.7, 0.1, 0.3);
-            molecule[9] = make_float4(0.1, -0.2, -0.3, 0.4);
+		printf("INFO: kernel layout set to %i threads per block (%i in x, %i in y)\n", host_params.thread_x * host_params.thread_y, host_params.thread_x, host_params.thread_y);
+		initialized = true;
+	}
+	void loadMolecule(std::string path = "")
+	{
+		// reset color scheme and delete privious molecule
+		if (molecule_loaded)
+		{
+			delete[] molecule;
+		}
 
-            colors = new uint[host_params.numAtoms];
-            colors[0] = 0x2060ff;
-            colors[1] = 0x202020;
-            colors[2] = 0xee2010;
-            colors[3] = 0x2060ff;
-            colors[4] = 0x202020;
-            colors[5] = 0xffffff;
-            colors[6] = 0xffffff;
-            colors[7] = 0x2060ff;
-            colors[8] = 0xee2010;
-            colors[9] = 0x202020;
+		// default/test molecule
+		if (path.length() > 0)
+		{
+			recentFilePath = path;
+		}
+		if (path.length() == 0 && recentFilePath.length() == 0)
+		{
+			printf("ERROR: no path to molecule provided.\n");
+		}
+		else
+		{
+			// Error code to check return values for CUDA calls
+			cudaError_t err = cudaSuccess;
 
-            focusPoint = make_float4(0.15, 0.05, -1.35, -1.35);
-            // float tanValue = 1 / atan((22.5) * M_PI / 180);
-            float Zoom = 10;
-            float zOffset = max(1.5 * Zoom, 1.5 * Zoom);
-            zOffset = max(zOffset, (1.675 * Zoom));
-            focusPoint.w = zOffset + CAMOFFSET;
+			err = cudaGetLastError();
+			if (err != cudaSuccess)
+			{
+				printf("ERROR: Failed at very start (error code %s)!\n", cudaGetErrorString(err));
+				exit(EXIT_FAILURE);
+			}
 
-            // extend atom radi by solvent radius
-            addToRadius(molecule, host_params.numAtoms, host_params.solvent_radius);
-        }
-        else
-        {
-            // open file
-            std::ifstream input_file(recentFilePath);
-            if (!input_file)
-            {
-                std::cout << "Error reading file. Loading default molecule instead." << std::endl;
-                loadMolecule();
-                return;
-            }
+			// open file
+			// molecule = (float4 *)malloc(446 * sizeof(float4));
+			if (readFile(recentFilePath, &molecule, &host_params.numAtoms))
+			{
+				printf("INFO: molecule loaded from path, size = %i atoms\n", host_params.numAtoms);
+			}
+			else
+			{
+				printf("ERROR: file could not be read. Loading default molecule instead.\n");
 
-            // determine molecule size
-            unsigned int atom = 0;
-            unsigned int hetatm = 0;
-            std::string delimiter = " ";
-            std::string word;
-            float4 box_min = {-INFINITY, -INFINITY, -INFINITY, 0};
-            float4 box_max = {INFINITY, INFINITY, INFINITY, 0};
-            for (std::string tmp; std::getline(input_file, tmp);)
-            {
-                std::string word = tmp.substr(0, 6);
-                bool is_atom = false;
-                if (word == "ATOM  ")
-                {
-                    ++atom;
-                    is_atom = true;
-                }
-                else if (word == "HETATM")
-                {
-                    ++hetatm;
-                    is_atom = true;
-                }
+				delete[] molecule;
+				loadMolecule();
+			}
 
-                if (is_atom)
-                {
-                    // read coordinates
-                    float x_coord = std::stof(tmp.substr(30, 8));
-                    float y_coord = std::stof(tmp.substr(38, 8));
-                    float z_coord = std::stof(tmp.substr(46, 8));
-                    if (x_coord > box_min.x)
-                        box_min.x = x_coord;
-                    if (x_coord < box_max.x)
-                        box_max.x = x_coord;
-                    if (y_coord > box_min.y)
-                        box_min.y = y_coord;
-                    if (y_coord < box_max.y)
-                        box_max.y = y_coord;
-                    if (z_coord > box_min.z)
-                        box_min.z = z_coord;
-                    if (z_coord < box_max.z)
-                        box_max.z = z_coord;
-                }
-            }
+			//  set default solvent radius
+			host_params.solvent_radius = 1.4;
+			////////////////////////////////////////////////////////////////////////
+			// add radius and colour information
+			////////////////////////////////////////////////////////////////////////
+			checkCudaErrors(cudaMalloc((void **)&(molecule_device), host_params.numAtoms * sizeof(float4)));
+			checkCudaErrors(cudaMemcpy(molecule_device, molecule, host_params.numAtoms * 4 * sizeof(float), cudaMemcpyHostToDevice));
+			checkCudaErrors(cudaMalloc((void **)&(colors_device), host_params.numAtoms * sizeof(uint)));
 
-            // allocate arrays for molecule information
-            host_params.numAtoms = atom + hetatm;
-            molecule = new float4[host_params.numAtoms];
-            colors = new uint[host_params.numAtoms];
+			int blocks = 0;
+			int threads = 0;
+			getNumBlocksAndThreads(host_params.numAtoms, MAXBLOCKS, MAXTHREADS, blocks, threads);
+			supplement<<<2 * blocks, threads>>>(molecule_device, colors_device, host_params);
+			err = cudaGetLastError();
+			if (err != cudaSuccess)
+			{
+				printf("ERROR: failed to add radius & colour information (error code %s)!\n", cudaGetErrorString(err));
+				exit(EXIT_FAILURE);
+			}
+			cudaDeviceSynchronize();
 
-            // setup initial camera position to cover the whole molecule
-            // TODO: synchronize Zoom Default Value with Camera class
-            float Zoom = 0;
-            focusPoint = 0.5 * (box_min + box_max);
-            float zOffset = max(abs(box_max.x - box_min.x) * Zoom, abs(box_max.y - box_min.y) * Zoom);
-            zOffset = max(zOffset, 0.5 * abs(box_max.z - box_min.z));
-            focusPoint.w = zOffset + CAMOFFSET;
-            host_params.depth_max = zOffset + CAMOFFSET;
+			// //////////////////////////////////////////////////////////////////////
+			// initialize grid
+			// //////////////////////////////////////////////////////////////////////
+			if (host_params.use_voxel)
+			{
+				int smemSize = (threads <= 32) ? 2 * threads * sizeof(float4) : threads * sizeof(float4);
+				smemSize *= 2;
+				int offset = (threads <= 32) ? 2 * threads : threads;
+				float4 *bmin, *bmax;
+				float4 init_box = molecule[0];
 
-            input_file.clear();
-            input_file.seekg(0, input_file.beg);
+				checkCudaErrors(cudaMallocManaged(&bmin, sizeof(float4)));
+				checkCudaErrors(cudaMallocManaged(&bmax, sizeof(float4)));
+				checkCudaErrors(cudaMemcpy(bmin, &init_box, sizeof(float4), cudaMemcpyHostToDevice));
+				checkCudaErrors(cudaMemcpy(bmax, &init_box, sizeof(float4), cudaMemcpyHostToDevice));
 
-            // read file
-            std::string keyword;
-            // std::string atom_name;
-            std::string element_symbol;
+				measureGrid<<<blocks, threads, smemSize>>>(molecule_device, bmin, bmax, offset, host_params);
+				err = cudaGetLastError();
+				if (err != cudaSuccess)
+				{
+					printf("ERROR: grid measurements were not successful (error code %s)!\n", cudaGetErrorString(err));
+					exit(EXIT_FAILURE);
+				}
+				cudaDeviceSynchronize();
 
-            uint l = 0;
-            for (std::string line; std::getline(input_file, line);)
-            {
-                keyword = line.substr(0, 6);
-                if (keyword == "ATOM  " || keyword == "HETATM")
-                {
-                    uint color = (uint)0x000000;
-                    float radius = 0.1f;
+				host_params.box_start = *bmin - host_params.solvent_max;
+				host_params.box_end = *bmax + host_params.solvent_max;
 
-                    element_symbol = line.substr(76, 2);
+				err = cudaGetLastError();
+				if (err != cudaSuccess)
+				{
+					printf("ERROR: Failed to launch supplement kernel (error code %s)!\n", cudaGetErrorString(err));
+					exit(EXIT_FAILURE);
+				}
+				checkCudaErrors(cudaFree(bmin));
+				checkCudaErrors(cudaFree(bmax));
 
-                    // remove spaces from element symbol
-                    std::string::iterator end_pos = std::remove(element_symbol.begin(), element_symbol.end(), ' ');
-                    element_symbol.erase(end_pos, element_symbol.end());
+				// count number of atoms for each voxel
+				host_params.voxel_size = 2 * fabs(host_params.box_end.w + host_params.solvent_max);
+				host_params.voxel_dim = castf2i(ceilf((1 / host_params.voxel_size) * fabs(host_params.box_start - host_params.box_end)));
+				voxel_mem = host_params.voxel_dim.x * host_params.voxel_dim.y * host_params.voxel_dim.z;
 
-                    // find color and radius of atom
-                    findEntry(element_symbol, host_params.colorScheme, &radius, &color);
+				checkCudaErrors(cudaMalloc((void **)&(voxel_count_device), voxel_mem * sizeof(int)));
 
-                    // set molecule entry
-                    molecule[l] = make_float4(std::stof(line.substr(30, 8)),        // x - Coordinates
-                                              std::stof(line.substr(38, 8)),        // y - Coordinates
-                                              std::stof(line.substr(46, 8)),        // z - Coordinates
-                                              radius + host_params.solvent_radius); // atom radius extended by solvent radius
-                    colors[l] = color;
-                    l++;
-                }
-            }
-            printf("INFO: molecule loaded from path, size = %i atoms\n", host_params.numAtoms);
-        }
+				getNumBlocksAndThreads(voxel_mem, MAXBLOCKS, MAXTHREADS, blocks, threads);
+				initArray<<<2 * blocks, threads>>>(voxel_count_device, voxel_mem, 0);
+				cudaDeviceSynchronize();
+				getNumBlocksAndThreads(host_params.numAtoms, MAXBLOCKS, MAXTHREADS, blocks, threads);
+				countVoxels<<<2 * blocks, threads>>>(molecule_device, voxel_count_device, host_params);
+				err = cudaGetLastError();
+				if (err != cudaSuccess)
+				{
+					printf("ERROR: Failed to determine atoms per voxel (error code %s)!\n", cudaGetErrorString(err));
+					exit(EXIT_FAILURE);
+				}
+				cudaDeviceSynchronize();
 
-        // copy data to GPU
-        checkCudaErrors(cudaMalloc((void **)&(molecule_device), host_params.numAtoms * sizeof(float4)));
-        checkCudaErrors(cudaMemcpy(molecule_device, molecule, host_params.numAtoms * sizeof(float4), cudaMemcpyHostToDevice));
-        checkCudaErrors(cudaMalloc((void **)&(colors_device), host_params.numAtoms * sizeof(uint)));
-        checkCudaErrors(cudaMemcpy(colors_device, colors, host_params.numAtoms * sizeof(uint), cudaMemcpyHostToDevice));
+				// determine maximum number of atoms per voxel
+				int maxVoxelCount;
+				int *d_maxVoxelCount;
+				checkCudaErrors(cudaMallocManaged(&d_maxVoxelCount, sizeof(int)));
+				initArray<<<1, 1>>>(d_maxVoxelCount, 1, 0);
+				smemSize = (threads <= 32) ? 2 * threads * sizeof(int) : threads * sizeof(int);
 
-        update();
-        // TODO: implement loader, remove test molecule
-        molecule_loaded = true;
-    }
-    void update()
-    {
-        setParameters(host_params);
-    }
+				getNumBlocksAndThreads(voxel_mem, MAXBLOCKS, MAXTHREADS, blocks, threads);
+				countPerVoxel<<<blocks, threads, smemSize>>>(voxel_count_device, d_maxVoxelCount, voxel_mem);
+				err = cudaGetLastError();
+				if (err != cudaSuccess)
+				{
+					printf("ERROR: Failed to determine maximum number of atoms per voxel (error code %s)!\n", cudaGetErrorString(err));
+					exit(EXIT_FAILURE);
+				}
+				cudaDeviceSynchronize();
+				checkCudaErrors(cudaMemcpy(&maxVoxelCount, d_maxVoxelCount, sizeof(int), cudaMemcpyDeviceToHost));
+				// int atomsPerDim = (int)(floorf(host_params.voxel_size / host_params.box_start.w));
+				host_params.atomsPerVoxel = maxVoxelCount;
+				// host_params.atomsPerVoxel = 100;
+				checkCudaErrors(cudaFree(d_maxVoxelCount));
 
-    void reset()
-    {
-        host_params.window_width = 1920;
-        host_params.window_height = 1080;
+				// printf("voxel_data: atomsPVoxel = %i, voxel_mem = %i\n", host_params.atomsPerVoxel, voxel_mem);
+				checkCudaErrors(cudaMalloc((void **)&(voxel_data_device), host_params.atomsPerVoxel * voxel_mem * sizeof(int)));
 
-        host_params.numAtoms = 10;
-        host_params.solvent_radius = 0.1;
-        host_params.epsilon = 0.001;
-        host_params.epsilon_squared = host_params.epsilon * host_params.epsilon;
+				// initialize grid -> sort atom ids in voxel_data array based on ascending voxel number
+				getNumBlocksAndThreads(host_params.atomsPerVoxel * voxel_mem, MAXBLOCKS, MAXTHREADS, blocks, threads);
+				initArray<<<2 * blocks, threads>>>(voxel_data_device, host_params.atomsPerVoxel * voxel_mem, -1);
+				cudaDeviceSynchronize();
 
-        initialize();
-        if (molecule_loaded)
-        {
-            checkCudaErrors(cudaFree(molecule_device));
-            checkCudaErrors(cudaFree(colors_device));
-            delete[] molecule;
-            delete[] colors;
-        }
+				initializeGrid<<<2 * blocks, threads>>>(molecule_device, voxel_data_device, voxel_count_device, host_params);
+				err = cudaGetLastError();
+				if (err != cudaSuccess)
+				{
+					printf("ERROR: Failed to initialize grid (error code %s)!\n", cudaGetErrorString(err));
+					exit(EXIT_FAILURE);
+				}
+			}
 
-        molecule_loaded = false;
-    }
-    ////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// setup initial camera position to cover the whole molecule
+			// TODO: synchronize Zoom Default Value with Camera class
+			float Zoom = 10;
+			focusPoint = 0.5 * (host_params.box_start + host_params.box_end);
+			float zOffset = max(abs(host_params.box_end.x - host_params.box_start.x) * Zoom, abs(host_params.box_end.y - host_params.box_start.y) * Zoom);
+			zOffset = max(zOffset, 0.5 * abs(host_params.box_end.z - host_params.box_start.z));
+			focusPoint.w = zOffset + CAMOFFSET;
+			host_params.depth_max = 4 * zOffset + CAMOFFSET;
+		}
 
-    ////////////////////////////////////////////////////////////////////////////////////////////////////////
-    // destructor
-    ~AppSettings()
-    {
-        if (molecule_loaded)
-        {
-            cudaDeviceSynchronize();
-            delete[] molecule;
-            delete[] colors;
-            checkCudaErrors(cudaFree((float4 *)molecule_device));
-            checkCudaErrors(cudaFree((uint *)colors_device));
-            molecule = nullptr;
-            molecule_device = nullptr;
-            colors = nullptr;
-            colors_device = nullptr;
-        }
-    }
-    // copy constructor
-    AppSettings(const AppSettings &obj)
-    {
-        initialized = true;
-        host_params = obj.host_params;
+		update();
+		molecule_loaded = true;
+	}
+	void update()
+	{
+		// test thresholds
+		if (host_params.k_nearest > GROUP_SIZE)
+		{
+			host_params.k_nearest = GROUP_SIZE;
+		}
 
-        molecule_loaded = obj.molecule_loaded;
+		// synchronize CPU & GPU parameters
+		setParameters(host_params);
+	}
 
-        // initialize();
+	void reset()
+	{
+		host_params.window_width = 1920;
+		host_params.window_height = 1080;
 
-        if (obj.molecule_loaded)
-        {
-            molecule = new float4[obj.host_params.numAtoms];
-            colors = new uint[obj.host_params.numAtoms];
-            for (int i = 0; i < obj.host_params.numAtoms; i++)
-            {
-                molecule[i] = obj.molecule[i];
-                colors[i] = obj.colors[i];
-            }
-            molecule_device = obj.molecule_device;
-            colors_device = obj.colors_device;
-        }
-    }
-    // assignment operator
-    AppSettings &AppSettings::operator=(AppSettings &obj)
-    {
-        std::swap(host_params, obj.host_params);
-        std::swap(molecule, obj.molecule);
-        std::swap(molecule_device, obj.molecule_device);
-        std::swap(molecule_loaded, obj.molecule_loaded);
+		host_params.numAtoms = 10;
+		host_params.solvent_radius = 0.1;
+		host_params.epsilon = 0.001;
+		host_params.epsilon_squared = host_params.epsilon * host_params.epsilon;
 
-        std::swap(colors, obj.colors);
-        std::swap(colors_device, obj.colors_device);
-        initialized = true;
-        return *this;
-    }
+		initialize();
+		if (molecule_loaded)
+		{
+			checkCudaErrors(cudaFree(molecule_device));
+			checkCudaErrors(cudaFree(colors_device));
+			if (host_params.use_voxel)
+			{
+				checkCudaErrors(cudaFree(voxel_data_device));
+				checkCudaErrors(cudaFree(voxel_count_device));
+			}
+			delete[] molecule;
+		}
 
-    ////////////////////////////////////////////////////////////////////////////////////////////////////////
+		molecule_loaded = false;
+	}
+	////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    ////////////////////////////////////////////////////////////////////////////////////////////////////////
-    // getter
-    uint getAtomCount()
-    {
-        return host_params.numAtoms;
-    }
+	////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// destructor
+	~AppSettings()
+	{
+		if (molecule_loaded)
+		{
+			checkCudaErrors(cudaFree((float4 *)molecule_device));
+			checkCudaErrors(cudaFree((uint *)colors_device));
 
-    uint getThreadX()
-    {
-        return host_params.thread_x;
-    }
-    uint getThreadY()
-    {
-        return host_params.thread_y;
-    }
+			molecule_device = nullptr;
+			colors_device = nullptr;
 
-    uint getWindowWidth()
-    {
-        return host_params.window_width;
-    }
-    uint getWindowHeight()
-    {
-        return host_params.window_height;
-    }
+			if (host_params.use_voxel)
+			{
+				checkCudaErrors(cudaFree((int *)voxel_data_device));
+				checkCudaErrors(cudaFree((int *)voxel_count_device));
+				voxel_data_device = nullptr;
+				voxel_count_device = nullptr;
+			}
 
-    uint getTexture1()
-    {
-        return host_params.texture_1;
-    }
+			delete[] molecule;
+			molecule = nullptr;
+		}
+	}
+	// copy constructor
+	AppSettings(const AppSettings &obj)
+	{
+		initialized = true;
+		host_params = obj.host_params;
+		molecule_loaded = obj.molecule_loaded;
 
-    float getSolventRadius()
-    {
-        return host_params.solvent_radius;
-    }
+		if (obj.molecule_loaded)
+		{
+			for (int i = 0; i < host_params.numAtoms; i++)
+			{
+				molecule[i] = obj.molecule[i];
+			}
 
-    float getEpsilon()
-    {
-        return host_params.epsilon;
-    }
-    float getEpsilonSquared()
-    {
-        return host_params.epsilon_squared;
-    }
-    float4 *getDeviceMolecule()
-    {
-        return molecule_device;
-    }
-    uint *getDeviceColors()
-    {
-        return colors_device;
-    }
+			molecule_device = obj.molecule_device;
 
-    bool getDebugMode()
-    {
-        return host_params.debug_mode;
-    }
+			colors_device = obj.colors_device;
+			voxel_data_device = obj.voxel_data_device;
+			voxel_count_device = obj.voxel_count_device;
+		}
+	}
+	// assignment operator
+	AppSettings &AppSettings::operator=(AppSettings &obj)
+	{
+		std::swap(host_params, obj.host_params);
+		std::swap(molecule, obj.molecule);
+		std::swap(molecule_device, obj.molecule_device);
+		std::swap(molecule_loaded, obj.molecule_loaded);
 
-    SimulationParams getAllHostParams()
-    {
-        return host_params;
-    }
-    bool getPerformanceDisplay()
-    {
-        return performanceDisplay;
-    }
-    unsigned int getFrameLimit()
-    {
-        return frameLimit;
-    }
+		std::swap(colors_device, obj.colors_device);
 
-    float4 getCameraFocus()
-    {
-        return focusPoint;
-    }
+		std::swap(voxel_data_device, obj.voxel_data_device);
+		std::swap(voxel_count_device, obj.voxel_count_device);
+		initialized = true;
+		return *this;
+	}
 
-    ////////////////////////////////////////////////////////////////////////////////////////////////////////
+	////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    ////////////////////////////////////////////////////////////////////////////////////////////////////////
-    // setter
+	////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// getter
+	uint getAtomCount()
+	{
+		return host_params.numAtoms;
+	}
 
-    void addToSolventRadius(float value)
-    {
-        host_params.solvent_radius += value;
-        addToRadius(molecule, host_params.numAtoms, value);
-        checkCudaErrors(cudaMemcpy(molecule_device, molecule, host_params.numAtoms * sizeof(float4), cudaMemcpyHostToDevice));
-    }
+	uint getThreadX()
+	{
+		return host_params.thread_x;
+	}
+	uint getThreadY()
+	{
+		return host_params.thread_y;
+	}
 
-    void changeDebugMode(bool value)
-    {
-        host_params.debug_mode = value;
-    }
-    void setEpsilon(float value)
-    {
-        host_params.epsilon = value;
-        host_params.epsilon_squared = value * value;
-    }
-    void setMousePos(double value_x, double value_y)
-    {
-        host_params.mouse_x_pos = value_x;
-        host_params.mouse_y_pos = value_y;
-    }
-    void changePerformanceDisplay(bool state)
-    {
-        performanceDisplay = state;
-    }
-    void changeFrameLimit(unsigned int limit)
-    {
-        frameLimit = limit;
-    }
+	uint getWindowWidth()
+	{
+		return host_params.window_width;
+	}
+	uint getWindowHeight()
+	{
+		return host_params.window_height;
+	}
 
-    /**
-     * @brief Set the color scheme for the molecule.
-     * !!! Forces a reload of the molecule data from most recent file path !!!
-     *
-     * @param value
-     */
-    void setColorScheme(unsigned int value)
-    {
-        // schemes
-        // 0 - case sensitive with default colors
-        // 1 - Corey
-        // 2 - Koltun
-        // 3 - Jmol
-        // 4 - Rasmol old (prior version 2.7.3)
-        // 5 - Rasmol new (version 2.7.3 and later)
-        // 6 - PubChem
+	uint getTexture1()
+	{
+		return host_params.texture_1;
+	}
 
-        // error handling
-        if (value > 6)
-        {
-            printf("color scheme %i is not defined. Available schemes are:\n", value);
-            printf("0 - case sensitive with default colors\n");
-            printf("1 - Corey\n");
-            printf("2 - Koltun\n");
-            printf("3 - Jmol\n");
-            printf("4 - Rasmol (prior version 2.7.3)\n");
-            printf("5 - Rasmol  (version 2.7.3 and later)\n");
-            printf("6 - PubChem\n");
-        }
+	float getSolventRadius()
+	{
+		return host_params.solvent_radius;
+	}
 
-        // set scheme
-        host_params.colorScheme = value;
+	float getEpsilon()
+	{
+		return host_params.epsilon;
+	}
+	float getEpsilonSquared()
+	{
+		return host_params.epsilon_squared;
+	}
+	float4 *getDeviceMolecule()
+	{
+		return molecule_device;
+	}
+	uint *getDeviceColors()
+	{
+		return colors_device;
+	}
 
-        // reload molecule
-        loadMolecule();
-    }
+	int *getDeviceVoxelData()
+	{
+		return voxel_data_device;
+	}
+	int *getDeviceVoxelCount()
+	{
+		return voxel_count_device;
+	}
 
-    ////////////////////////////////////////////////////////////////////////////////////////////////////////
+	bool getDebugMode()
+	{
+		return host_params.debug_mode;
+	}
+
+	SimulationParams getAllHostParams()
+	{
+		return host_params;
+	}
+	bool getPerformanceDisplay()
+	{
+		return performanceDisplay;
+	}
+	unsigned int getFrameLimit()
+	{
+		return frameLimit;
+	}
+
+	float4 getCameraFocus()
+	{
+		return focusPoint;
+	}
+
+	int getDebugFrame()
+	{
+		return host_params.debug_frame;
+	}
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// setter
+
+	void addToSolventRadius(float value)
+	{
+		host_params.solvent_radius += value;
+		if (host_params.solvent_radius > host_params.solvent_max)
+		{
+			value = host_params.solvent_radius - host_params.solvent_max;
+			host_params.solvent_radius = host_params.solvent_max;
+		}
+		if (host_params.solvent_radius < 0)
+		{
+			value = -host_params.solvent_radius;
+			host_params.solvent_radius = host_params.solvent_max;
+		}
+		addToRadius(molecule, host_params.numAtoms, value);
+		checkCudaErrors(cudaMemcpy(molecule_device, &molecule, host_params.numAtoms * sizeof(float4), cudaMemcpyHostToDevice));
+	}
+
+	void changeDebugMode(bool value)
+	{
+		host_params.debug_mode = value;
+	}
+	void setEpsilon(float value)
+	{
+		host_params.epsilon = value;
+		host_params.epsilon_squared = value * value;
+	}
+	void setMousePos(double value_x, double value_y)
+	{
+		host_params.mouse_x_pos = value_x;
+		host_params.mouse_y_pos = value_y;
+	}
+	void changePerformanceDisplay(bool state)
+	{
+		performanceDisplay = state;
+	}
+	void changeFrameLimit(unsigned int limit)
+	{
+		frameLimit = limit;
+	}
+
+	void setKnearest(unsigned int value)
+	{
+		host_params.k_nearest = value;
+	}
+
+	void setVoxelUsage(bool value)
+	{
+		host_params.use_voxel = value;
+	}
+
+	void setDebugFrame(int value)
+	{
+		host_params.debug_frame = value;
+	}
+
+	/**
+	 * @brief Set the color scheme for the molecule.
+	 * !!! Forces a reload of the molecule data from most recent file path !!!
+	 *
+	 * @param value
+	 */
+	void setColorScheme(unsigned int value)
+	{
+		// schemes
+		// 0 - case sensitive with default colors
+		// 1 - Corey
+		// 2 - Koltun
+		// 3 - Jmol
+		// 4 - Rasmol old (prior version 2.7.3)
+		// 5 - Rasmol new (version 2.7.3 and later)
+		// 6 - PubChem
+
+		// error handling
+		if (value > 6)
+		{
+			printf("color scheme %i is not defined. Available schemes are:\n", value);
+			printf("0 - case sensitive with default colors\n");
+			printf("1 - Corey\n");
+			printf("2 - Koltun\n");
+			printf("3 - Jmol\n");
+			printf("4 - Rasmol (prior version 2.7.3)\n");
+			printf("5 - Rasmol  (version 2.7.3 and later)\n");
+			printf("6 - PubChem\n");
+		}
+
+		// set scheme
+		host_params.colorScheme = value;
+
+		// TODO: on color change, figure out how to reload molecule
+	}
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////
 };
 #endif

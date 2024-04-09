@@ -60,11 +60,19 @@ public:
             linkedSettings->changeDebugMode(!current_value);
             if (current_value)
             {
+                linkedSettings->setDebugFrame(-1);
                 std::cout << "debug mode set to OFF" << std::endl;
             }
             else
             {
+                linkedSettings->setDebugFrame(0);
                 std::cout << "debug mode set to ON" << std::endl;
+
+                double xpos, ypos;
+                int height, width;
+                glfwGetCursorPos(iWindow, &xpos, &ypos);
+                glfwGetWindowSize(iWindow, &width, &height);
+                linkedSettings->setMousePos(xpos, height - ypos);
             }
             settings_updated = true;
         }
@@ -75,9 +83,11 @@ public:
         if (key == GLFW_KEY_M && action == GLFW_PRESS)
         {
             double xpos, ypos;
+            int height, width;
             glfwGetCursorPos(iWindow, &xpos, &ypos);
-            linkedSettings->setMousePos(xpos, ypos);
-            std::cout << "current mouse position is: " << xpos << ", " << ypos << std::endl;
+            glfwGetWindowSize(iWindow, &width, &height);
+            linkedSettings->setMousePos(xpos, height - ypos);
+            std::cout << "current mouse position is: " << xpos << ", " << height - ypos << std::endl;
             settings_updated = true;
         }
 
@@ -183,6 +193,7 @@ void mouse_callback(GLFWwindow *window, double xpos, double ypos)
         {
             lastX = xpos;
             lastY = ypos;
+            cam.updateMouseAxis();
             firstMouse = false;
         }
 

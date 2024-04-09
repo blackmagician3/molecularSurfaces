@@ -145,21 +145,31 @@ int main(int argc, char **argv)
   quadTex.use();                                  // use shader
   int VAO = quadBuffers();                        // create and bind buffers for quad (used to display the molecule using a texture)
 
-  // std::string moleculePath = "C:/Users/lukab/OneDrive/Dokumente/repos/molecularSurfaces/testMolecules/3i40.pdb";
-  std::string moleculePath = "";
+  // testing molecules
+  std::string moleculePath = "C:/Users/lukab/OneDrive/Dokumente/repos/molecularSurfaces/testMolecules/3i40.pdb"; // 446 atoms
+  // std::string moleculePath = "C:/Users/lukab/OneDrive/Dokumente/repos/molecularSurfaces/testMolecules/6hvb.pdb"; // 1410 atoms
+  // std::string moleculePath = "C:/Users/lukab/OneDrive/Dokumente/repos/molecularSurfaces/testMolecules/5bny.pdb"; // 12460 atoms
+  // std::string moleculePath = "C:/Users/lukab/OneDrive/Dokumente/repos/molecularSurfaces/testMolecules/2btv.pdb1";
+  // std::string moleculePath = "";
   settings->setColorScheme(1);                              // chooses color scheme for visualization
   settings->loadMolecule(moleculePath);                     // load molecule data
   cam->intializeCameraPosition(settings->getCameraFocus()); // setup camera
 
+  settings->setKnearest(10);
+  settings->setVoxelUsage(true);
+  settings->setEpsilon(0.01);
+
   // performance measuring (disabled by default)
   settings->changePerformanceDisplay(false); // activate performance measuring
-  PerformanceCounter performance(10);        // add performance counter
+  PerformanceCounter performance(60);        // add performance counter
 
   // frames per second limit (0 for unlimited)
   settings->changeFrameLimit(20);
 
+  settings->update();
   /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-  int frames = 0;
+
+  int frame = 0;
   // start rendering mainloop
   while (!glfwWindowShouldClose(window))
   {
@@ -168,12 +178,15 @@ int main(int argc, char **argv)
     float currentFrame = glfwGetTime();
     deltaTime = currentFrame - lastFrame;
     lastFrame = currentFrame;
-    ++frames;
+
     //////////////////////////////////////////////////////////////////////////////////////
     // performance measuring
+    if (settings->getPerformanceDisplay())
+    {
+      performance.runMeasuring(deltaTime);
+    }
 
     //////////////////////////////////////////////////////////////////////////////////////
-
     //////////////////////////////////////////////////////////////////////////////////////
     // handle inputs
     processInput(window, settings, deltaTime); // handle keyboard events
@@ -181,8 +194,10 @@ int main(int argc, char **argv)
     //////////////////////////////////////////////////////////////////////////////////////
 
     //////////////////////////////////////////////////////////////////////////////////////
+
+    //////////////////////////////////////////////////////////////////////////////////////
     // run CUDA kernel to generate vertex positions
-    runCuda(cam, settings->getAllHostParams(), settings->getDeviceMolecule(), settings->getDeviceColors());
+    runCuda(cam, settings->getAllHostParams(), settings->getDeviceMolecule(), settings->getDeviceColors(), settings->getDeviceVoxelData(), settings->getDeviceVoxelCount(), frame);
     //////////////////////////////////////////////////////////////////////////////////////
 
     //////////////////////////////////////////////////////////////////////////////////////
@@ -204,9 +219,24 @@ int main(int argc, char **argv)
         Sleep(sleepTime);
     }
 
+    //////////////////////////////////////////////////////////////////////////////////////
+    // debugging
+    if (settings->getDebugMode())
+    {
+      int value = settings->getDebugFrame();
+      value++;
+      settings->setDebugFrame(value);
+      settings->update();
+    }
+    //////////////////////////////////////////////////////////////////////////////////////
+
     // swap buffers
     glfwSwapBuffers(window);
     glfwPollEvents();
+
+    frame++;
+    if (frame > INFINITY)
+      frame = 0;
   }
   cleanup(settings);
   delete iWindow;

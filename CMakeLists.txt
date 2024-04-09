@@ -146,7 +146,7 @@ add_dependencies(${PROJECT_NAME} copy_shaders)
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
 target_compile_options(${PROJECT_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:
                         --generate-line-info
-                        # --device-debug
+                        --device-debug
                         --use_fast_math
                         # --relocatable-device-code=true
                         >)

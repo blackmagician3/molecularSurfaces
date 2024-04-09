@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef RAYMARCHING_KERNEL_HPP
-#define RAYMARCHING_KERNEL_HPP
+#ifndef RAYMARCHING_KERNEL_CUH
+#define RAYMARCHING_KERNEL_CUH
 
 #include <iostream>
 #include <stdlib.h>
@@ -90,29 +90,10 @@ __device__ float4 blendColors(uint colorA, uint colorB, float weight1, float wei
     float4 cB = convertAndWeight(colorB, weight2);
     float4 color = cA + cB;
     color.w = 1.0f;
-    // color.x = sqrt((1 - weight) * cA.x * cA.x + weight * cB.x * cB.x);
-    // color.y = sqrt((1 - weight) * cA.y * cA.y + weight * cB.y * cB.y);
-    // color.z = sqrt((1 - weight) * cA.z * cA.z + weight * cB.z * cB.z);
-    // color.w = 1.0f;
+
     return color;
 }
-// __device__ float4 blendColors(uint colorA, uint colorB, uint colorC, float weights[])
-// {
-//     // float4 cA = convertHexToRGB(colorA);
-//     // float4 cB = convertHexToRGB(colorB);
-//     // float4 cC = convertHexToRGB(colorC);
 
-//     float4 cA = convertAndWeight(colorA, weights[0]);
-//     float4 cB = convertAndWeight(colorB, weights[1]);
-
-//     float4 color1 = cA + cB;
-//     float4 color = weights[2] * (color1) + convertAndWeight(colorC, weights[3]);
-//     color.w = 1.0f;
-//     // color.x = pow(weightA * pow(cA.x, 3) + weightB * pow(cB.x, 3) + weightC * pow(cC.x, 3), 1 / 3);
-//     // color.y = pow(weightA * pow(cA.y, 3) + weightB * pow(cB.y, 3) + weightC * pow(cC.y, 3), 1 / 3);
-//     // color.z = pow(weightA * pow(cA.z, 3) + weightB * pow(cB.z, 3) + weightC * pow(cC.z, 3), 1 / 3);
-//     return color;
-// }
 __device__ float4 blendColors(uint colorA, uint colorB, uint colorC, float weights[])
 {
     float4 cA = convertAndWeight(colorA, weights[0]);
@@ -120,7 +101,6 @@ __device__ float4 blendColors(uint colorA, uint colorB, uint colorC, float weigh
     float4 cC = convertAndWeight(colorC, weights[2]);
 
     float4 color = cA + cB + cC;
-    // float4 color = weights[0] * cA + weights[1] * cB + weights[2] * cC;
 
     color.w = 1.0f;
     return color;
@@ -128,7 +108,8 @@ __device__ float4 blendColors(uint colorA, uint colorB, uint colorC, float weigh
 
 __device__ float4 getSurfaceColor(hitInfo *surfData, float4 *molecule, uint *colors, uint colorScheme, float solventRadius, float x, float y, SimulationParams params, float4 rayDir)
 {
-    float4 color = make_float4(0.2f, 0.2f, 0.2f, 1.0f);
+    // float4 color = make_float4(0.2f, 0.2f, 0.2f, 1.0f);
+    float4 color = make_float4(1.0f, 1.0f, 1.0f, 1.0f);
 
     switch (surfData->collisionType)
     {
@@ -200,23 +181,6 @@ __device__ float4 getSurfaceColor(hitInfo *surfData, float4 *molecule, uint *col
             weights[0] = 1 - weights[2] - weights[1];
 
             color = blendColors(colors[ids[0]], colors[ids[1]], colors[ids[2]], weights);
-            if (params.debug_mode && (x == 768) && (y == 432))
-            {
-                // float4 c1 = convertHexToRGB(colors[surfData->bondId1]);
-                // float4 c2 = convertHexToRGB(colors[surfData->bondId2]);
-                // float4 c3 = convertHexToRGB(colors[surfData->bondId3]);
-
-                // printf("weights: [%.3f, %.3f, %.3f], colors: [(%.2f, %.2f, %.2f), (%.2f, %.2f, %.2f), (%.2f, %.2f, %.2f)]\n",
-                //        weights[0], weights[1], weights[2], c1.x, c1.y, c1.z, c2.x, c2.y, c3.z, c3.x, c3.y, c3.z);
-                printf("pixel %i, %i:\n", (int)x, (int)y);
-                printf("-------------------------------------------------------------------------\n");
-                printf("p1.x/p1.y/p1.z/p2.x/p2.y/p2.z/p3.x/p3.y/p3.z/ray.x/ray.y/ray.z\n");
-                printf("%f/%f/%f", p1.x, p1.y, p1.z);
-                printf("/%f/%f/%f", p2.x, p2.y, p2.z);
-                printf("/%f/%f/%f", p3.x, p3.y, p3.z);
-                printf("/%f/%f/%f\n", surfData->rayPos.x, surfData->rayPos.y, surfData->rayPos.z);
-                printf("-------------------------------------------------------------------------\n");
-            }
         }
         break;
     case 4:
@@ -234,7 +198,8 @@ __device__ float4 calculateLighting(SimulationParams params, float4 color, float
 
     //  colors
     float4 light_color = make_float4(1.0f, 1.0f, 1.0f, 0.0f);
-    float4 light_position = make_float4(5.0f, 0.0f, 10.0f, 0.0f);
+    // float4 light_position = make_float4(5.0f, 0.0f, 10.0f, 0.0f);
+    float4 light_position = cam_pos;
 
     // ambient
     float ambientStrength = 0.1f;
@@ -278,12 +243,13 @@ __device__ float4 calculateNormal(hitInfo *surfacePointData, float4 *molecule, b
         break;
     default:
         if (debug)
-            printf("normal calculation missing defined case\n");
+            printf("ERROR: normal calculation missing defined case\n");
         break;
     }
 }
 
-__global__ void marching_kernel(cudaSurfaceObject_t surface, float4 *molecule, uint *colors, float4 screen_center, float4 cam_focus, float4 cam_right, float4 cam_up, float4 cam_position, float4 cam_front)
+// TODO: summarize camera values in struct
+__global__ void marching_kernel(cudaSurfaceObject_t surface, float4 *molecule, uint *colors, int *voxel_data, int *voxel_count, float4 screen_center, float4 cam_focus, float4 cam_right, float4 cam_up, float4 cam_position, float4 cam_front, int frame = 0)
 {
     /////////////////////////////////////////////////
     // 0 // Preperations
@@ -300,6 +266,7 @@ __global__ void marching_kernel(cudaSurfaceObject_t surface, float4 *molecule, u
     v = v * 2.0f - 1.0f;
 
     // determine ray
+    // TODO: implement ray as struct for ease of use
     float4 ray_origin = screen_center + u * normalize(cam_right) + v * normalize(cam_up);
     float4 ray = normalize(ray_origin - cam_position);
     float4 ray_pos;
@@ -309,10 +276,12 @@ __global__ void marching_kernel(cudaSurfaceObject_t surface, float4 *molecule, u
     int steps_max = 250;
 
     float4 b_color = make_float4(0.2f, 0.2f, 0.2f, 1.0f);
+    // float4 b_color = make_float4(1.0f, 1.0f, 1.0f, 1.0f);
     float4 surfaceColor = b_color;
 
     hitInfo surfacePointData;
     surfacePointData.collisionType = 0;
+    surfacePointData.grid_reached = false;
 
     // ray marching loop
     for (int i = 0; i < steps_max; i++)
@@ -322,7 +291,7 @@ __global__ void marching_kernel(cudaSurfaceObject_t surface, float4 *molecule, u
         ray_pos = cam_position + depth * ray;
 
         // compute distance to surface
-        float f_sdf = computeSurface(ray_pos, molecule, colors, params, &surfacePointData, x, y);
+        float f_sdf = computeSurface(ray_pos, ray, molecule, colors, voxel_data, voxel_count, params, &surfacePointData, x, y, frame, i);
 
         // for SES extend distance by solvent radius
         f_sdf += params.solvent_radius;
@@ -341,79 +310,52 @@ __global__ void marching_kernel(cudaSurfaceObject_t surface, float4 *molecule, u
             break;
         }
     }
-
-    surfaceColor = getSurfaceColor(&surfacePointData, molecule, colors, params.colorScheme, params.solvent_radius, x, y, params, ray);
-
-    // if (params.debug_mode && (x == 704) && (y == 432))
-    // {
-    //     if (surfacePointData.collisionType == 3)
-    //     {
-    //         printf("testing pixel %i, %i:\n", x, y);
-    //         printf("-----------------------------------------------------------------------------------------\n");
-    //         printf("atom1.x/atom1.y/atom1.z/atom1.r/atom1.color/atom2.x/atom2.y/atom2.z/atom2.r/atom2.color/atom3.x/atom3.y/atom3.z/atom3.r/atom3.color");
-    //         printf("/collision_type/ray_position.x/ray_position.y/ray_position.z/surface_hit.x/surface_hit.y/surface_hit.z");
-    //         printf("/focus.x/focus.y/focus.z");
-    //         printf("-----------------------------------------------------------------------------------------\n");
-    //         // atom1
-    //         printf("%f/%f/%f", molecule[surfacePointData.bondId1].x, molecule[surfacePointData.bondId1].y, molecule[surfacePointData.bondId1].z);
-    //         printf("/%f/%i", molecule[surfacePointData.bondId1].w - params.solvent_radius, colors[surfacePointData.bondId1]);
-
-    //         // atom2
-    //         printf("/%f/%f/%f", molecule[surfacePointData.bondId2].x, molecule[surfacePointData.bondId2].y, molecule[surfacePointData.bondId2].z);
-    //         printf("/%f/%i", molecule[surfacePointData.bondId2].w - params.solvent_radius, colors[surfacePointData.bondId2]);
-
-    //         // atom3
-    //         printf("/%f/%f/%f", molecule[surfacePointData.bondId3].x, molecule[surfacePointData.bondId3].y, molecule[surfacePointData.bondId3].z);
-    //         printf("/%f/%i", molecule[surfacePointData.bondId3].w - params.solvent_radius, colors[surfacePointData.bondId3]);
-
-    //         // general information
-    //         printf("/%i", surfacePointData.collisionType);
-    //         printf("/%f/%f/%f", surfacePointData.rayPos.x, surfacePointData.rayPos.y, surfacePointData.rayPos.z);
-    //         printf("/%f/%f/%f", surfacePointData.surfaceHit.x, surfacePointData.surfaceHit.y, surfacePointData.surfaceHit.z);
-    //         printf("/%f/%f/%f\n", cam_position.x, cam_position.y, cam_position.z);
-    //         printf("-----------------------------------------------------------------------------------------\n");
-    //     }
-    //     else
-    //     {
-    //         printf("wrong pixel, no type 3 collision!\n");
-    //     }
-    //     // if (surfacePointData.collisionType == 2)
-    //     // {
-    //     //     printf("testing pixel %i, %i:\n", x, y);
-    //     //     printf("-----------------------------------------------------------------------------------------\n");
-    //     //     printf("atom1.x/atom1.y/atom1.z/atom1.r/atom1.color/atom2.x/atom2.y/atom2.z/atom2.r/atom2.color/atom3.x/atom3.y/atom3.z/atom3.r/atom3.color");
-    //     //     printf("/collision_type/ray_position.x/ray_position.y/ray_position.z/surface_hit.x/surface_hit.y/surface_hit.z\n");
-    //     //     printf("-----------------------------------------------------------------------------------------\n");
-    //     //     // atom1
-    //     //     printf("%f/%f/%f", molecule[surfacePointData.bondId1].x, molecule[surfacePointData.bondId1].y, molecule[surfacePointData.bondId1].z);
-    //     //     printf("/%f/%i", molecule[surfacePointData.bondId1].w - params.solvent_radius, colors[surfacePointData.bondId1]);
-
-    //     //     // atom2
-    //     //     printf("/%f/%f/%f", molecule[surfacePointData.bondId2].x, molecule[surfacePointData.bondId2].y, molecule[surfacePointData.bondId2].z);
-    //     //     printf("/%f/%i", molecule[surfacePointData.bondId2].w - params.solvent_radius, colors[surfacePointData.bondId2]);
-
-    //     //     // general information
-    //     //     printf("/%i", surfacePointData.collisionType);
-    //     //     printf("/%f/%f/%f", surfacePointData.rayPos.x, surfacePointData.rayPos.y, surfacePointData.rayPos.z);
-    //     //     printf("/%f/%f/%f", surfacePointData.surfaceHit.x, surfacePointData.surfaceHit.y, surfacePointData.surfaceHit.z);
-    //     //     printf("/%f/%f/%f\n", cam_focus.x, cam_focus.y, cam_focus.z);
-    //     //     printf("-----------------------------------------------------------------------------------------\n");
-    //     // }
-    //     // else
-    //     // {
-    //     //     printf("wrong pixel, no type 2 collision!\n");
-    //     // }
-    // }
-
-    if (surfacePointData.collisionType < 4)
+    bool in_highlight = false;
+    if (params.debug_mode)
     {
-        float4 normal = calculateNormal(&surfacePointData, molecule, params.debug_mode);
-        surfaceColor = calculateLighting(params, surfaceColor, ray_pos, normal, cam_position);
+        float x_diff = params.mouse_x_pos - x;
+        float y_diff = params.mouse_y_pos - y;
+        in_highlight = ((x_diff * x_diff + y_diff * y_diff) <= (params.highlight_radius * params.highlight_radius));
+        if (in_highlight)
+        {
+            surfaceColor = make_float4(0.89f, 0.17f, 0.74f, 1.0f);
+        }
+    }
+    if (!params.debug_mode || !in_highlight)
+    {
+        surfaceColor = getSurfaceColor(&surfacePointData, molecule, colors, params.colorScheme, params.solvent_radius, x, y, params, ray);
+
+        if (surfacePointData.collisionType < 4)
+        {
+            float4 normal = calculateNormal(&surfacePointData, molecule, params.debug_mode);
+            surfaceColor = calculateLighting(params, surfaceColor, ray_pos, normal, cam_position);
+        }
     }
 
+    // if (surfacePointData.collisionType < 4)
+    // {
+    //     float4 normal = calculateNormal(&surfacePointData, molecule, params.debug_mode);
+    //     surfaceColor = calculateLighting(params, surfaceColor, ray_pos, normal, cam_position);
+    // }
+
     surf2Dwrite(surfaceColor, surface, x * sizeof(float4), y);
+
+    // if (params.debug_mode && params.debug_frame == 0 && x == 728 && y == 423)
+    // {
+    //     printf("------DEBUG after write -------\n");
+    //     printf("Pixel: %i, %i\n", x, y);
+    //     printf("SurfaceHit: %.2f, %.2f, %.2f\n", surfacePointData.surfaceHit.x, surfacePointData.surfaceHit.y, surfacePointData.surfaceHit.z);
+    //     printf("RayPos: %.2f, %.2f, %.2f\n", surfacePointData.rayPos.x, surfacePointData.rayPos.y, surfacePointData.rayPos.z);
+    //     printf("RayDir: %.4f, %.4f, %.4f\n", ray.x, ray.y, ray.z);
+    //     printf("Box_min: %.2f, %.2f, %.2f\n", params.box_start.x, params.box_start.y, params.box_start.z);
+    //     printf("Box_max: %.2f, %.2f, %.2f\n", params.box_end.x, params.box_end.y, params.box_end.z);
+    //     printf("BondID1: %i\n", surfacePointData.bondId1);
+    //     printf("Colour: %.2f, %.2f, %.2f\n", surfaceColor.x, surfaceColor.y, surfaceColor.z);
+    //     printf("CollisionType: %i\n", surfacePointData.collisionType);
+    //     printf("-------------------------------\n");
+    // }
 }
-void runCuda(Camera *cam, SimulationParams host_params, float4 *molecule, uint *colors)
+void runCuda(Camera *cam, SimulationParams host_params, float4 *molecule, uint *colors, int *voxel_data, int *voxel_count, int frame = 0)
 {
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // thread/grid setup
@@ -450,12 +392,15 @@ void runCuda(Camera *cam, SimulationParams host_params, float4 *molecule, uint *
     marching_kernel<<<grid, block>>>(surf_object_1,
                                      molecule,
                                      colors,
+                                     voxel_data,
+                                     voxel_count,
                                      cam_center,
                                      cam_focus,
                                      cam_right,
                                      cam_up,
                                      cam_pos,
-                                     cam_front);
+                                     cam_front,
+                                     frame);
     cudaDeviceSynchronize();
     ////////////////////////////////////////////////////////////////////////////////////////////////
 

@@ -28,11 +28,19 @@ struct SimulationParams
     uint numAtoms;
     uint k_nearest;
     bool is_SES;
+    bool use_voxel;
+    bool use_iterative_solver;
     float solvent_radius;
+    float solvent_max;
     float epsilon;
     float epsilon_squared;
     float depth_min;
     float depth_max;
+    int4 voxel_dim; // (number voxels in x, number voxels in y, number voxels in z, 0)
+    float voxel_size;
+    float4 box_start; // offset for grid starting point
+    float4 box_end;   // offset for grid ending point
+    int atomsPerVoxel;
 
     // coloring
     uint colorScheme;
@@ -40,6 +48,8 @@ struct SimulationParams
     bool debug_mode;
     double mouse_x_pos;
     double mouse_y_pos;
+    float highlight_radius;
+    int debug_frame;
 };
 
 /**
