@@ -27,6 +27,8 @@ cudaArray *cuda_tex_array_1, *cuda_tex_array_2;              // cuda array to ac
 cudaResourceDesc cuda_resource_desc_1, cuda_resource_desc_2; // resource description for surface
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 const int TEST_SIZE = 10;
+const int MAX_STEP = 10000;
+
 // simulation parameters in constant memory
 __constant__ SimulationParams params;
 
@@ -273,25 +275,34 @@ __global__ void marching_kernel(cudaSurfaceObject_t surface, float4 *molecule, u
 
     float depth = params.depth_min;
     // TODO: max number of steps needs to be more precise
-    int steps_max = 250;
+    int steps_max = 100;
 
     float4 b_color = make_float4(0.2f, 0.2f, 0.2f, 1.0f);
     // float4 b_color = make_float4(1.0f, 1.0f, 1.0f, 1.0f);
     float4 surfaceColor = b_color;
 
+    // if (frame == 0 && x == 0 && y == 0)
+    // {
+    //     printf("Size of params: %i\n", (int)sizeof(params));
+    // }
+
     hitInfo surfacePointData;
     surfacePointData.collisionType = 0;
-    surfacePointData.grid_reached = false;
+    surfacePointData.isInGrid = false;
+    surfacePointData.traversedGrid = false;
+
+    surfaceColor = b_color;
+    surfacePointData.collisionType = 42;
 
     // ray marching loop
-    for (int i = 0; i < steps_max; i++)
+    int step = 0;
+    while (step < MAX_STEP)
     {
-
         // calculate new ray position
         ray_pos = cam_position + depth * ray;
 
         // compute distance to surface
-        float f_sdf = computeSurface(ray_pos, ray, molecule, colors, voxel_data, voxel_count, params, &surfacePointData, x, y, frame, i);
+        float f_sdf = computeSurface(ray_pos, ray, molecule, colors, voxel_data, voxel_count, params, &surfacePointData, x, y, frame, step);
 
         // for SES extend distance by solvent radius
         f_sdf += params.solvent_radius;
@@ -309,7 +320,22 @@ __global__ void marching_kernel(cudaSurfaceObject_t surface, float4 *molecule, u
             surfacePointData.collisionType = 42;
             break;
         }
+        if (surfacePointData.traversedGrid)
+        {
+            surfaceColor = b_color;
+            surfacePointData.collisionType = 42;
+            break;
+        }
+        if (step > steps_max)
+        {
+            surfaceColor = b_color;
+            surfacePointData.collisionType = 42;
+            break;
+        }
+
+        step++;
     }
+
     bool in_highlight = false;
     if (params.debug_mode)
     {
@@ -374,6 +400,10 @@ void runCuda(Camera *cam, SimulationParams host_params, float4 *molecule, uint *
     float4 cam_pos = cam->getPosAsFloat4();
     float4 cam_front = cam->getFrontAsFloat4();
 
+    if (host_params.debug_mode && host_params.debug_frame == 0)
+    {
+        printf("Cam Position: %.2f, %.2f, %.2f\n", cam_pos.x, cam_pos.y, cam_pos.z);
+    }
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // map OpenGL buffer object for writing from CUDA
     // size_t num_bytes_1, num_bytes_2;

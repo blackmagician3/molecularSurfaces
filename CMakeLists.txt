@@ -150,6 +150,7 @@ target_compile_options(${PROJECT_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:
                         --use_fast_math
                         # --relocatable-device-code=true
                         >)
+target_compile_options(${PROJECT_NAME} PRIVATE $<$<CONFIG:DEBUG>:-G>)
 
 # Set CUDA architecture
 # default value: 75 to match testing system with nvidia 2080 card

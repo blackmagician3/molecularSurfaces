@@ -156,7 +156,7 @@ int main(int argc, char **argv)
   cam->intializeCameraPosition(settings->getCameraFocus()); // setup camera
 
   settings->setKnearest(10);
-  settings->setVoxelUsage(true);
+  settings->setVoxelUsage(false);
   settings->setEpsilon(0.01);
 
   // performance measuring (disabled by default)

@@ -46,7 +46,8 @@ struct hitInfo
     uint collisionType;
     float4 surfaceHit;
     float4 rayPos;
-    bool grid_reached;
+    bool isInGrid;
+    bool traversedGrid;
 };
 
 // struct voxel
@@ -245,7 +246,7 @@ __device__ float calculateDistanceToGrid(float4 ray_pos, float4 ray_dir, Simulat
         else
             return traveldist; // moving parallel to the box -> ray can't hit the molecule
     }
-    float result = numerator / denominator;
+    float result = (numerator / denominator);
 
     // distance to grid is measured along ray direction
     // -> negative distances implicate the box has already been traversed
@@ -253,7 +254,12 @@ __device__ float calculateDistanceToGrid(float4 ray_pos, float4 ray_dir, Simulat
     {
         return traveldist;
     }
-    return result;
+    // if (result > params.solvent_max)
+    // {
+    //     return result - params.solvent_max + 0.001;
+    // }
+
+    return result + params.epsilon;
 }
 
 __device__ void findNearestAtoms(float4 *molecule_data, uint number_atoms, Atom nearest_atoms[], uint nearest_count, float4 position, int x = 0, int y = 0)
@@ -354,7 +360,6 @@ __device__ unsigned int nearestOverVoxel(float4 *molecule_data, int *voxel_data,
 }
 __device__ float computeSurface(float4 ray_pos, float4 ray_dir, float4 *molecule, uint *colors, int *voxel_data, int *voxel_count, SimulationParams params, hitInfo *surfacePointData, int x = 0, int y = 0, int frame = 0, int step = 0)
 {
-
     // ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     // ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -377,22 +382,28 @@ __device__ float computeSurface(float4 ray_pos, float4 ray_dir, float4 *molecule
         // position outside grid (position cannot lie on molecule surface)
         if (ray_pos < (params.box_start) || ray_pos > (params.box_end))
         {
-            if (surfacePointData->grid_reached)
-                return INFINITY;
 
-            f_sdf = calculateDistanceToGrid(ray_pos, ray_dir, params, frame, x, y);
-            // TODO: test if a constant travel distance (at most 1x solvent radius) would be faster than calculating the distance to the grid
+            if (surfacePointData->isInGrid)
+            {
+                surfacePointData->isInGrid = false;
+                surfacePointData->traversedGrid = true;
+                return INFINITY;
+            }
+
+            if (step == 0)
+            {
+                float4 diag = params.box_end - params.box_start;
+                float4 gridcenter = params.box_start + 0.5 * diag;
+                float traveldist = length(gridcenter - ray_pos) - 0.5 * length(diag);
+                return max(traveldist, 0.0f);
+            }
+
+            // f_sdf = calculateDistanceToGrid(ray_pos, ray_dir, params, frame, x, y);
             // f_sdf = params.solvent_radius;
 
-            // if (params.debug_mode && params.debug_frame == 0 && x == 728 && y == 423)
-            // {
-            //     printf("DEBUG: OUTSIDE GRID (%.2f) pixel %i, %i, ray_pos: %.2f, %.2f, %.2f, debugframe %i, step: %i\n",
-            //            f_sdf, x, y, ray_pos.x, ray_pos.y, ray_pos.z, params.debug_frame, step);
-            // }
-
-            return f_sdf;
+            return 0;
         }
-        surfacePointData->grid_reached = true;
+        surfacePointData->isInGrid = true;
     }
     if (!params.use_voxel)
     {
@@ -400,11 +411,6 @@ __device__ float computeSurface(float4 ray_pos, float4 ray_dir, float4 *molecule
         f_sdf = calcSignedDistanceOuterWithNearestAtom(ray_pos, molecule, params.numAtoms, surfacePointData);
         if (f_sdf >= 0)
         {
-            // if (params.debug_mode && params.debug_frame == 0 && x == 728 && y == 423)
-            // {
-            //     printf("DEBUG: OUTSIDE GRID (%.2f) pixel %i, %i, ray_pos: %.2f, %.2f, %.2f, debugframe %i, step: %i\n",
-            //            f_sdf, x, y, ray_pos.x, ray_pos.y, ray_pos.z, params.debug_frame, step);
-            // }
             return f_sdf;
         }
     }
@@ -424,6 +430,22 @@ __device__ float computeSurface(float4 ray_pos, float4 ray_dir, float4 *molecule
         }
 
         f_sdf = calcSignedDistanceOuter(ray_pos, nearest_atoms, nearest_count);
+
+        if (params.debug_mode && params.debug_frame == 0 && step == 1 && x == 1037 && y == 569)
+        {
+            printf("f_sdf = %.3f, nearest atoms:\n", f_sdf);
+            for (int i = 0; i < nearest_count; i++)
+            {
+                if (params.use_voxel)
+                {
+                    int4 current_voxel = castf2i(floorf((ray_pos - params.box_start) / params.voxel_size));
+                    int voxel = castVoxelToId(params.voxel_dim, current_voxel.x, current_voxel.y, current_voxel.z);
+                    printf("%i|%i|%i|%.2f|%.2f|%.2f|%i|%i|%.3f\n",
+                           i, (int)true, step, ray_pos.x, ray_pos.y, ray_pos.z,
+                           nearest_atoms[i].id, voxel, nearest_atoms[i].distance);
+                }
+            }
+        }
         if (f_sdf >= 0)
         {
             return f_sdf;
@@ -471,41 +493,31 @@ __device__ float computeSurface(float4 ray_pos, float4 ray_dir, float4 *molecule
         //     }
         //     printf("-----------------------------------------------\n");
         // }
-        // TODO: DEBUG appproach I:
-        //       ->write Debug method to activate in range of specific raypos (custom delta)
-        //       -> get all k-nearest atoms
-        //       -> compare grid and non grid version
-        if (params.debug_mode && params.debug_frame == 0 && x == 1062 && y == 396)
-        {
-            float epsilon_pos = 0.01;
-            float4 target = make_float4(-14.112, -10.838, -6.265, 0);
-            if ((ray_pos - target) < make_float4(epsilon_pos))
-            {
-                for (int i = 0; i < nearest_count; i++)
-                {
-                    if (params.use_voxel)
-                    {
-                        int4 current_voxel = castf2i(floorf((ray_pos - params.box_start) / params.voxel_size));
-                        int voxel = castVoxelToId(params.voxel_dim, current_voxel.x, current_voxel.y, current_voxel.z);
-                        printf("%i|%i|%i|%.2f|%.2f|%.2f|%i|%i|%.3f\n",
-                               i, (int)true, step, ray_pos.x, ray_pos.y, ray_pos.z,
-                               nearest_atoms[i].id, voxel, nearest_atoms[i].distance);
-                    }
-                    else
-                    {
-                        printf("%i|%i|%i|%.2f|%.2f|%.2f|%i|%i|%.3f\n",
-                               i, (int)false, step, ray_pos.x, ray_pos.y, ray_pos.z,
-                               nearest_atoms[i].id, 0, nearest_atoms[i].distance);
-                    }
-                }
-            }
-        }
-
-        // TODO: DEBUG appproach II:
-        //       ->write Debug method to activate in range of specific raypos (custom delta)
-        //       -> calculate point for each voxel
-        //       -> get all atoms for each voxel & compare with no grid version (k-nearest)
-        //       -> compare grid and non grid version
+        // if (params.debug_mode && params.debug_frame == 0 && x == 1037 && y == 569)
+        // {
+        //     float epsilon_pos = 0.01;
+        //     float4 target = make_float4(-2.626, 1.799, 3.204, 0);
+        //     if ((ray_pos - target) < make_float4(epsilon_pos))
+        //     {
+        //         for (int i = 0; i < nearest_count; i++)
+        //         {
+        //             if (params.use_voxel)
+        //             {
+        //                 int4 current_voxel = castf2i(floorf((ray_pos - params.box_start) / params.voxel_size));
+        //                 int voxel = castVoxelToId(params.voxel_dim, current_voxel.x, current_voxel.y, current_voxel.z);
+        //                 printf("%i|%i|%i|%.2f|%.2f|%.2f|%i|%i|%.3f\n",
+        //                        i, (int)true, step, ray_pos.x, ray_pos.y, ray_pos.z,
+        //                        nearest_atoms[i].id, voxel, nearest_atoms[i].distance);
+        //             }
+        //             else
+        //             {
+        //                 printf("%i|%i|%i|%.2f|%.2f|%.2f|%i|%i|%.3f\n",
+        //                        i, (int)false, step, ray_pos.x, ray_pos.y, ray_pos.z,
+        //                        nearest_atoms[i].id, 0, nearest_atoms[i].distance);
+        //             }
+        //         }
+        //     }
+        // }
 
         ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
         // 3 // intersection with one atom
