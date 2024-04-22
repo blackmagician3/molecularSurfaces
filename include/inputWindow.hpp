@@ -227,13 +227,19 @@ void processInput(GLFWwindow *window, AppSettings *settings, float deltaTime)
     // Up & Down Arrows to change Solvent Radius
     if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
     {
-        settings->addToSolventRadius(0.01f);
-        settings_updated = true;
+        if (settings->getSolventRadius() < settings->getMaxSolventRadius())
+        {
+            settings->addToSolventRadius(0.01f);
+            settings_updated = true;
+        }
     }
     if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
     {
-        settings->addToSolventRadius(-0.01f);
-        settings_updated = true;
+        if (settings->getSolventRadius() > 0.01f)
+        {
+            settings->addToSolventRadius(-0.01f);
+            settings_updated = true;
+        }
     }
 
     // camera movement with WASD + IK

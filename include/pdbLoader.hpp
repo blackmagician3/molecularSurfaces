@@ -159,8 +159,6 @@ __global__ void measureGrid(float4 *molecule, float4 *min, float4 *max, int offs
         redMin = molecule[i] - adj;
         redMax = molecule[i] + adj;
         molecule[i].w += params.solvent_radius;
-        // printf("%i|%.3f|%.3f|%.3f|%.3f\n", i, molecule[i].x, molecule[i].y,
-        //        molecule[i].z, molecule[i].w);
     }
     else
     {
@@ -175,13 +173,16 @@ __global__ void measureGrid(float4 *molecule, float4 *min, float4 *max, int offs
         redMin = fminf(redMin, molecule[i + blockDim.x] - adj);
         redMax = fmaxf(redMax, molecule[i + blockDim.x] + adj);
         molecule[i + blockDim.x].w += params.solvent_radius;
+
+        float4 testMin = molecule[i + blockDim.x] - adj;
+        float4 testMax = molecule[i + blockDim.x] + adj;
     }
     tempMin[tid] = redMin;
     tempMax[tid] = redMax;
     __syncthreads();
 
     // do reduction in shared mem
-    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1)
+    for (unsigned int s = (blockDim.x) / 2; s > 0; s >>= 1)
     {
         if (tid < s)
         {
@@ -194,10 +195,11 @@ __global__ void measureGrid(float4 *molecule, float4 *min, float4 *max, int offs
     // write result for this block to global mem
     if (tid == 0)
     {
-        *min = redMin;
-        *max = redMax;
+        min[blockIdx.x] = redMin;
+        max[blockIdx.x] = redMax;
     }
 }
+
 template <typename T>
 __global__ void initArray(T *array, int n, T value)
 {

@@ -365,6 +365,12 @@ __device__ float computeSurface(float4 ray_pos, float4 ray_dir, float4 *molecule
     // ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // // 0 // variables/constants
     float f_sdf = 0; // current distance to SAS
+    if (params.debug_mode && params.debug_frame == 0 && (x == (int)params.mouse_x_pos) && (y == (int)params.mouse_y_pos))
+    {
+        printf("%i|%i|%s|%.5f|%.5f|%.5f|%i|%.5f|%i|%i|%i\n", params.debug_frame, step, "compute_start",
+               ray_pos.x, ray_pos.y, ray_pos.z, (int)surfacePointData->isInGrid, f_sdf,
+               -1, -1, -1);
+    }
 
     surfacePointData->collisionType = 0;
     // ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -417,6 +423,12 @@ __device__ float computeSurface(float4 ray_pos, float4 ray_dir, float4 *molecule
 
     Atom nearest_atoms[GROUP_SIZE];
     unsigned int nearest_count = 0;
+    if (params.debug_mode && params.debug_frame == 0 && (x == (int)params.mouse_x_pos) && (y == (int)params.mouse_y_pos))
+    {
+        printf("%i|%i|%s|%.5f|%.5f|%.5f|%i|%.5f|%i|%i|%i\n", params.debug_frame, step, "compute_nearest_start",
+               ray_pos.x, ray_pos.y, ray_pos.z, (int)surfacePointData->isInGrid, f_sdf,
+               -1, -1, -1);
+    }
 
     if (params.use_voxel)
     {
@@ -451,9 +463,22 @@ __device__ float computeSurface(float4 ray_pos, float4 ray_dir, float4 *molecule
             return f_sdf;
         }
     }
+    if (params.debug_mode && params.debug_frame == 0 && (x == (int)params.mouse_x_pos) && (y == (int)params.mouse_y_pos))
+    {
+        printf("%i|%i|%s|%.5f|%.5f|%.5f|%i|%.5f|%i|%i|%i\n", params.debug_frame, step, "compute_nearest_done",
+               ray_pos.x, ray_pos.y, ray_pos.z, (int)surfacePointData->isInGrid, f_sdf,
+               -1, -1, -1);
+    }
 
     if (f_sdf < 0)
     {
+        if (params.debug_mode && params.debug_frame == 0 && (x == (int)params.mouse_x_pos) && (y == (int)params.mouse_y_pos))
+        {
+            printf("%i|%i|%s|%.5f|%.5f|%.5f|%i|%.5f|%i|%i|%i\n", params.debug_frame, step, "compute_sdf_lower_zero",
+                   ray_pos.x, ray_pos.y, ray_pos.z, (int)surfacePointData->isInGrid, f_sdf,
+                   -1, -1, -1);
+        }
+
         // if (params.debug_mode && params.debug_frame == 0 && x == params.mouse_x_pos && y == params.mouse_y_pos)
         // if (params.debug_mode && params.debug_frame == 0 && x == 728 && y == 423)
         // {
@@ -529,6 +554,12 @@ __device__ float computeSurface(float4 ray_pos, float4 ray_dir, float4 *molecule
 
         surfacePointData->collisionType = 1;
         surfacePointData->bondId1 = nearest_atoms[0].id;
+        if (params.debug_mode && params.debug_frame == 0 && (x == (int)params.mouse_x_pos) && (y == (int)params.mouse_y_pos))
+        {
+            printf("%i|%i|%s|%.5f|%.5f|%.5f|%i|%.5f|%i|%i|%i\n", params.debug_frame, step, "compute_one_hit",
+                   ray_pos.x, ray_pos.y, ray_pos.z, (int)surfacePointData->isInGrid, f_sdf,
+                   (int)surfacePointData->bondId1, -1, -1);
+        }
 
         // if (params.debug_mode && params.debug_frame == 0 && x == params.mouse_x_pos && y == params.mouse_y_pos)
         // {
@@ -547,6 +578,13 @@ __device__ float computeSurface(float4 ray_pos, float4 ray_dir, float4 *molecule
         // }
         if (abs(calcSignedDistanceOuter(surface_hit, nearest_atoms, params.k_nearest)) > params.epsilon)
         {
+            if (params.debug_mode && params.debug_frame == 0 && (x == (int)params.mouse_x_pos) && (y == (int)params.mouse_y_pos))
+            {
+                printf("%i|%i|%s|%.5f|%.5f|%.5f|%i|%.5f|%i|%i|%i\n", params.debug_frame, step, "compute_case1_surface",
+                       ray_pos.x, ray_pos.y, ray_pos.z, (int)surfacePointData->isInGrid, f_sdf,
+                       (int)surfacePointData->bondId1, -1, -1);
+            }
+
             ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
             ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -583,6 +621,13 @@ __device__ float computeSurface(float4 ray_pos, float4 ray_dir, float4 *molecule
                     }
                     if (surface_found)
                     {
+                        if (params.debug_mode && params.debug_frame == 0 && (x == (int)params.mouse_x_pos) && (y == (int)params.mouse_y_pos))
+                        {
+                            printf("%i|%i|%s|%.5f|%.5f|%.5f|%i|%.5f|%i|%i|%i\n", params.debug_frame, step, "compute_case2",
+                                   ray_pos.x, ray_pos.y, ray_pos.z, (int)surfacePointData->isInGrid, f_sdf,
+                                   (int)surfacePointData->bondId1, (int)surfacePointData->bondId2, -1);
+                        }
+
                         break;
                     }
                 }
@@ -647,16 +692,21 @@ __device__ float computeSurface(float4 ray_pos, float4 ray_dir, float4 *molecule
                     {
                         surfacePointData->surfaceHit = surface_hit;
                         surfacePointData->collisionType = 3;
-                        // surfacePointData->bondId1 = nearest_atoms[0].id;
-                        // surfacePointData->bondId2 = nearest_atoms[1].id;
-                        // surfacePointData->bondId3 = nearest_atoms[2].id;
+                        if (params.debug_mode && params.debug_frame == 0 && (x == (int)params.mouse_x_pos) && (y == (int)params.mouse_y_pos))
+                        {
+                            printf("%i|%i|%s|%.5f|%.5f|%.5f|%i|%.5f|%i|%i|%i\n", params.debug_frame, step, "compute_case3",
+                                   ray_pos.x, ray_pos.y, ray_pos.z, (int)surfacePointData->isInGrid, f_sdf,
+                                   (int)surfacePointData->bondId1, (int)surfacePointData->bondId2, (int)surfacePointData->bondId3);
+                        }
                     }
                     else
                     {
                         surfacePointData->collisionType = 4;
-                        if (params.debug_mode && (x == (int)params.mouse_x_pos) && (y == (int)params.mouse_y_pos))
+                        if (params.debug_mode && params.debug_frame == 0 && (x == (int)params.mouse_x_pos) && (y == (int)params.mouse_y_pos))
                         {
-                            printf("no viable case3 point found\n");
+                            printf("%i|%i|%s|%.5f|%.5f|%.5f|%i|%.5f|%i|%i|%i\n", params.debug_frame, step, "compute_case4",
+                                   ray_pos.x, ray_pos.y, ray_pos.z, (int)surfacePointData->isInGrid, f_sdf,
+                                   -1, -1, -1);
                         }
                     }
                 }

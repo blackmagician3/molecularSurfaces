@@ -179,16 +179,13 @@ public:
 			{
 				int smemSize = (threads <= 32) ? 2 * threads * sizeof(float4) : threads * sizeof(float4);
 				smemSize *= 2;
-				int offset = (threads <= 32) ? 2 * threads : threads;
-				float4 *bmin, *bmax;
-				float4 init_box = molecule[0];
+				int offset = ((threads <= 32) ? 2 * threads : threads);
 
-				checkCudaErrors(cudaMallocManaged(&bmin, sizeof(float4)));
-				checkCudaErrors(cudaMallocManaged(&bmax, sizeof(float4)));
-				checkCudaErrors(cudaMemcpy(bmin, &init_box, sizeof(float4), cudaMemcpyHostToDevice));
-				checkCudaErrors(cudaMemcpy(bmax, &init_box, sizeof(float4), cudaMemcpyHostToDevice));
+				float4 *blockMin, *blockMax;
+				checkCudaErrors(cudaMallocManaged((void **)&(blockMin), blocks * sizeof(float4)));
+				checkCudaErrors(cudaMallocManaged((void **)&(blockMax), blocks * sizeof(float4)));
 
-				measureGrid<<<blocks, threads, smemSize>>>(molecule_device, bmin, bmax, offset, host_params);
+				measureGrid<<<blocks, threads, smemSize>>>(molecule_device, blockMin, blockMax, offset, host_params);
 				err = cudaGetLastError();
 				if (err != cudaSuccess)
 				{
@@ -197,8 +194,18 @@ public:
 				}
 				cudaDeviceSynchronize();
 
-				host_params.box_start = *bmin - host_params.solvent_max;
-				host_params.box_end = *bmax + host_params.solvent_max;
+				float4 bMin = blockMin[0];
+				float4 bMax = blockMax[0];
+
+				// for multiple blocks reduce the min/max ararys on the host
+				for (int i = 1; i < blocks; i++)
+				{
+					bMin = fminf(bMin, blockMin[i]);
+					bMax = fmaxf(bMax, blockMax[i]);
+				}
+
+				host_params.box_start = bMin - host_params.solvent_max;
+				host_params.box_end = bMax + host_params.solvent_max;
 
 				err = cudaGetLastError();
 				if (err != cudaSuccess)
@@ -206,8 +213,8 @@ public:
 					printf("ERROR: Failed to launch supplement kernel (error code %s)!\n", cudaGetErrorString(err));
 					exit(EXIT_FAILURE);
 				}
-				checkCudaErrors(cudaFree(bmin));
-				checkCudaErrors(cudaFree(bmax));
+				checkCudaErrors(cudaFree(blockMin));
+				checkCudaErrors(cudaFree(blockMax));
 
 				// count number of atoms for each voxel
 				host_params.voxel_size = 2 * fabs(host_params.box_end.w + host_params.solvent_max);
@@ -251,6 +258,12 @@ public:
 				// host_params.atomsPerVoxel = 100;
 				checkCudaErrors(cudaFree(d_maxVoxelCount));
 
+				// printf("DEBUG: box_start is: %.5f, %.5f, %.5f\n", host_params.box_start.x, host_params.box_start.y, host_params.box_start.z);
+				// printf("DEBUG: box_end is: %.5f, %.5f, %.5f\n", host_params.box_end.x, host_params.box_end.y, host_params.box_end.z);
+				// printf("DEBUG: voxel_size is: %.5f\n", host_params.voxel_size);
+				// printf("DEBUG: voxel_dim is: %i, %i, %i\n", host_params.voxel_dim.x, host_params.voxel_dim.y, host_params.voxel_dim.z);
+				// printf("DEBUG: voxel_mem is: %i\n", voxel_mem);
+				// printf("DEBUG: atomsPerVoxel is: %i\n", host_params.atomsPerVoxel);
 				// printf("voxel_data: atomsPVoxel = %i, voxel_mem = %i\n", host_params.atomsPerVoxel, voxel_mem);
 				checkCudaErrors(cudaMalloc((void **)&(voxel_data_device), host_params.atomsPerVoxel * voxel_mem * sizeof(int)));
 
@@ -416,6 +429,11 @@ public:
 	float getSolventRadius()
 	{
 		return host_params.solvent_radius;
+	}
+
+	float getMaxSolventRadius()
+	{
+		return host_params.solvent_max;
 	}
 
 	float getEpsilon()

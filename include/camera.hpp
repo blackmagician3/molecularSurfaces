@@ -138,8 +138,8 @@ public:
 	void intializeCameraPosition(float4 cameraStart)
 	{
 		Focus = glm::vec3(cameraStart.x, cameraStart.y, cameraStart.z);
-		// Position = glm::vec3(cameraStart.x, cameraStart.y, cameraStart.z + cameraStart.w);
-		Position = glm::vec3(-181.93, 113.00, -114.96);
+		Position = glm::vec3(cameraStart.x, cameraStart.y, cameraStart.z + cameraStart.w);
+		// Position = glm::vec3(-181.93, 113.00, -114.96);
 		updateCameraVectors();
 		updateMouseAxis();
 	}
