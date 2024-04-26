@@ -24,21 +24,30 @@ include(CTest)
 # OpenGL
 find_package(OpenGL REQUIRED)
 
+
+# # Define common paths
+set(DEP_DIR ${CMAKE_CURRENT_BINARY_DIR}/dep)
+set(GLAD_INSTALL_DIR ${DEP_DIR}/glad/install)
+set(GLFW_INSTALL_DIR ${DEP_DIR}/glfw/install)
+set(GLM_INSTALL_DIR ${DEP_DIR}/glm/install)
+set(NANOGUI_INSTALL_DIR ${CMAKE_BINARY_DIR}/external/nanogui-install)
+
 ####################################################################
 ### external projects ##############################################
 ####################################################################
-# Add OpenGL, glfw, glad and glm as external project
+# Add OpenGL, glfw, glad, glm and nanogui as external project
 include(ExternalProject)
 
 SET(CMAKE_EXE_LINKER_FLAGS /NODEFAULTLIB:\"libcmt.lib\")
 
 set(libGLFW glfw)
 ExternalProject_Add(${libGLFW}
-PREFIX          ${CMAKE_CURRENT_BINARY_DIR}/dep/${libGLFW}
+PREFIX          ${DEP_DIR}/${libGLFW}
 GIT_REPOSITORY  https://github.com/glfw/glfw.git
 GIT_TAG         3.3.4
 GIT_SHALLOW     ON
-CMAKE_ARGS      -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_CURRENT_BINARY_DIR}/dep/${libGLFW}/install
+UPDATE_DISCONNECTED 1 # Do not update the external project if it is already downloaded
+CMAKE_ARGS      -DCMAKE_INSTALL_PREFIX:PATH=${GLFW_INSTALL_DIR}
                 -DGLFW_BUILD_DOCS:BOOL=OFF
                 -DGLFW_BUILD_EXAMPLES:BOOL=OFF
                 -DGLFW_BUILD_TESTS:BOOL=OFF
@@ -46,11 +55,12 @@ CMAKE_ARGS      -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_CURRENT_BINARY_DIR}/dep/${li
 
 set(libGLAD glad)
 ExternalProject_Add(${libGLAD}
-PREFIX          ${CMAKE_CURRENT_BINARY_DIR}/dep/${libGLAD}
+PREFIX          ${DEP_DIR}/${libGLAD}
 GIT_REPOSITORY  https://github.com/Dav1dde/glad.git
 GIT_TAG         origin/master
 GIT_SHALLOW     ON
-CMAKE_ARGS      -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_CURRENT_BINARY_DIR}/dep/${libGLAD}/install
+UPDATE_DISCONNECTED 1 # Do not update the external project if it is already downloaded
+CMAKE_ARGS      -DCMAKE_INSTALL_PREFIX:PATH=${GLAD_INSTALL_DIR}
                 -DGLAD_INSTALL:BOOL=ON
                 -DGLAD_PROFILE:STRING="core"
                 -DGLAD_ALL_EXTENSIONS:BOOL=ON
@@ -58,37 +68,48 @@ CMAKE_ARGS      -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_CURRENT_BINARY_DIR}/dep/${li
 )
 
 set(libGLM glm)
-ExternalProject_Add(
-    glm
-    PREFIX ${CMAKE_CURRENT_BINARY_DIR}/dep/glm
+ExternalProject_Add(${libGLM}
+    PREFIX ${DEP_DIR}/${libGLM}
     GIT_REPOSITORY https://github.com/g-truc/glm.git
     LOG_DOWNLOAD ON
     BUILD_COMMAND ""
     INSTALL_COMMAND   ""
-    CMAKE_ARGS  -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_CURRENT_BINARY_DIR}/dep/${libGLM}/install
+    UPDATE_DISCONNECTED 1 # Do not update the external project if it is already downloaded
+    CMAKE_ARGS  -DCMAKE_INSTALL_PREFIX:PATH=${GLM_INSTALL_DIR}
                 -DGLAD_INSTALL:BOOL=ON
                 -DGLAD_PROFILE:STRING="core"
                 -DGLAD_ALL_EXTENSIONS:BOOL=ON
                 -DUSE_MSVC_RUNTIME_LIBRARY_DLL:BOOL=OFF
     )
 
-set(GLM_INSTALL_DIR ${CMAKE_CURRENT_BINARY_DIR}/dep/${libGLM}/install)
+# Define the options to pass to NanoGUI's CMake build
+set(NANOGUI_CMAKE_ARGS
+    "-DCMAKE_INSTALL_PREFIX=${NANOGUI_INSTALL_DIR}"
+    "-DNANOGUI_BUILD_SHARED=OFF"  # You can adjust these options based on your needs
+    "-DNANOGUI_BUILD_EXAMPLES=OFF"
+    "-DNANOGUI_BUILD_PYTHON=OFF"
+    "-DNANOGUI_BUILD_GLFW=ON"
+)
 
-
-# TODO set_target_properties will need conditionals for windows/linux since extensions differ
+# Download and build NanoGUI as an external project
+ExternalProject_Add(
+    NanoGUI
+    GIT_REPOSITORY https://github.com/mitsuba-renderer/nanogui.git
+    GIT_TAG master  # Specify the version or commit hash if needed
+    CMAKE_ARGS ${NANOGUI_CMAKE_ARGS}
+    UPDATE_DISCONNECTED 1  # Disable automatic updates
+    INSTALL_DIR ${NANOGUI_INSTALL_DIR}
+)
 
 # SETUP GLFW
-set(GLFW_INSTALL_DIR ${CMAKE_CURRENT_BINARY_DIR}/dep/${libGLFW}/install)
 add_library(GLFW_LIBRARY OBJECT IMPORTED)
 set_target_properties(GLFW_LIBRARY PROPERTIES IMPORTED_OBJECTS ${GLFW_INSTALL_DIR}/lib/glfw3.lib)
 set_property(TARGET GLFW_LIBRARY PROPERTY IMPORTED_LOCATION ${GLFW_INSTALL_DIR})
 
 # SETUP GLAD
-set(GLAD_INSTALL_DIR ${CMAKE_CURRENT_BINARY_DIR}/dep/${libGLAD}/install)
 add_library(GLAD_LIBRARY OBJECT IMPORTED)
 set_target_properties(GLAD_LIBRARY PROPERTIES IMPORTED_OBJECTS ${GLAD_INSTALL_DIR}/lib/glad.lib)
 set_property(TARGET GLAD_LIBRARY PROPERTY IMPORTED_LOCATION ${GLAD_INSTALL_DIR})
-
 
 ####################################################################
 ### project files ##################################################
@@ -113,29 +134,23 @@ target_include_directories(${PROJECT_NAME}
     PUBLIC ${GLAD_INSTALL_DIR}/include
     PUBLIC ${GLFW_INSTALL_DIR}/include
     PUBLIC ${GLM_INSTALL_DIR}/include
+    PUBLIC ${NANOGUI_INSTALL_DIR}/include
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/app
 )
 
-# Specify the order in which libs depend on each other
-add_dependencies(${PROJECT_NAME} ${libGLFW} ${libGLAD})
-target_link_libraries(${PROJECT_NAME} GLAD_LIBRARY GLFW_LIBRARY)
-
-# copy shader files
-# add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-#     COMMAND ${CMAKE_COMMAND} -E copy_directory
-#     ${CMAKE_CURRENT_SOURCE_DIR}/include/shaders
-#     ${CMAKE_CURRENT_BINARY_DIR}/dep/shaders
-#     COMMENT "Copying shaders into binary directory")
-
+# copy shaders
 add_custom_target(copy_shaders ALL
     COMMAND ${CMAKE_COMMAND} -E copy_directory
     ${CMAKE_CURRENT_SOURCE_DIR}/include/shaders
     ${CMAKE_CURRENT_BINARY_DIR}/dep/shaders
     COMMENT "Copying shaders into binary directory")
 
-add_dependencies(${PROJECT_NAME} copy_shaders)
+  # Specify the order in which libs depend on each other
+add_dependencies(${PROJECT_NAME} ${libGLFW} ${libGLAD} copy_shaders)
+target_link_libraries(${PROJECT_NAME} GLAD_LIBRARY GLFW_LIBRARY)
+
 ####################################################################
 ### cuda configurations ############################################
 ####################################################################
@@ -145,12 +160,13 @@ add_dependencies(${PROJECT_NAME} copy_shaders)
 # TODO: test rdc (shouldnt be required while header only)
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
 target_compile_options(${PROJECT_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:
-                        --generate-line-info
+                        # --generate-line-info
                         --device-debug
                         --use_fast_math
                         # --relocatable-device-code=true
                         >)
 target_compile_options(${PROJECT_NAME} PRIVATE $<$<CONFIG:DEBUG>:-G>)
+
 
 # Set CUDA architecture
 # default value: 75 to match testing system with nvidia 2080 card
@@ -177,12 +193,12 @@ target_include_directories(${EXECUTABLE_NAME}
     PUBLIC ${GLAD_INSTALL_DIR}/include
     PUBLIC ${GLFW_INSTALL_DIR}/include
     PUBLIC ${GLM_INSTALL_DIR}/include
+    PUBLIC ${NANOGUI_INSTALL_DIR}/include
     PUBLIC ${GLAD_C_DIR}
 )
-
 
 set_property(TARGET ${EXECUTABLE_NAME}
              PROPERTY CUDA_SEPARABLE_COMPILATION ON
              CUDA_RESOLVE_DEVICE_SYMBOLS ON
              )
-target_link_libraries(${EXECUTABLE_NAME} ${PROJECT_NAME})
+target_link_libraries(${EXECUTABLE_NAME} ${PROJECT_NAME} ${NANOGUI_INSTALL_DIR}/lib/nanogui.lib)

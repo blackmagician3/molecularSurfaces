@@ -1,4 +1,7 @@
 {
+  "cmake.debugConfig": {
+    "console": "integratedTerminal"
+  },
   "files.associations": {
     "*.cu": "cuda",
     "iostream": "cpp",

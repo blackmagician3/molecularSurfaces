@@ -17,6 +17,9 @@
 #include "shader.h"
 #include "camera.hpp"
 
+// includes GUI
+#include <nanogui/nanogui.h>
+
 // includes cuda
 #include <cuda_runtime.h>
 #include <cuda_gl_interop.h>
@@ -134,6 +137,11 @@ int main(int argc, char **argv)
   glfwSetScrollCallback(window, scroll_callback);
   glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
+  // setup GUI
+  nanogui::Screen *screenPtr = nullptr;
+  iWindow->setupGUI();
+  screenPtr = iWindow->getScreenPointer();
+
   /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   // initializations
   AppSettings *settings = new AppSettings(window_width, window_height, texture_1); // initialize application settings
@@ -168,7 +176,7 @@ int main(int argc, char **argv)
 
   settings->update();
   /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+  glDisable(GL_DEPTH_TEST);
   int frame = 0;
   // start rendering mainloop
   while (!glfwWindowShouldClose(window))
@@ -204,7 +212,8 @@ int main(int argc, char **argv)
 
     //////////////////////////////////////////////////////////////////////////////////////
     // display molecule
-    draw(window_width, window_height, VAO, &texture_1);
+
+    draw(window_width, window_height, VAO, &texture_1, screenPtr);
 
     //////////////////////////////////////////////////////////////////////////////////////
 
@@ -228,6 +237,10 @@ int main(int argc, char **argv)
       settings->setDebugFrame(value);
       settings->update();
     }
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    //////////////////////////////////////////////////////////////////////////////////////
+
     //////////////////////////////////////////////////////////////////////////////////////
 
     // swap buffers

@@ -8,6 +8,8 @@
 #include <iostream>
 #include "shader.h"
 #include "camera.hpp"
+// includes GUI
+#include <nanogui/nanogui.h>
 
 // TODO add to config
 const unsigned int SCR_WIDTH = 1920;
@@ -51,16 +53,23 @@ int quadBuffers()
     return VAO;
 }
 
-void draw(unsigned int width, unsigned int height, int VAO, GLuint *texture_ptr)
+void draw(unsigned int width, unsigned int height, int VAO, GLuint *texture_ptr, nanogui::Screen *screenPtr)
 {
     // Render to the screen
-    glClearColor(1.0f, 0.0f, 0.0f, 0.0f);
+    glClearColor(0, 0, 0, 1);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glBindVertexArray(VAO);
     glDisable(GL_DEPTH_TEST);
     glBindTexture(GL_TEXTURE_2D, *texture_ptr);
     glDrawArrays(GL_TRIANGLES, 0, 6);
+
+    // draw GUI
+    // screenPtr->draw_all();
+    // screenPtr->draw_contents();
+    screenPtr->draw_setup();
+    screenPtr->draw_widgets();
+    // screenPtr->clear();
 }
 
 // test the buffer (write the first 20000 elements to a txt file)

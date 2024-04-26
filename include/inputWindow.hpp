@@ -1,15 +1,55 @@
 #ifndef INPUT_WINDOW_HPP
 #define INPUT_WINDOW_HPP
 
+/*
+NANOGUI definitions
+
+
+
+
+*/
+#if defined(NANOGUI_GLAD)
+#if defined(NANOGUI_SHARED) && !defined(GLAD_GLAPI_EXPORT)
+#define GLAD_GLAPI_EXPORT
+#endif
+
+#include <glad/glad.h>
+#else
+#if defined(__APPLE__)
+#define GLFW_INCLUDE_GLCOREARB
+#else
+#define GL_GLEXT_PROTOTYPES
+#endif
+#endif
+
 #include <iostream>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
-#include <glad/glad.h>
+// #include <glad/glad.h>
 #include <GLFW/glfw3.h>
+#include <nanogui/nanogui.h>
 #include <application_settings.hpp>
 #include "camera.hpp"
+
+// GUI stuff
+nanogui::Screen *screen = nullptr;
+
+// for GUI testing
+enum test_enum
+{
+    Item1 = 0,
+    Item2,
+    Item3
+};
+bool bvar = true;
+int ivar = 12345678;
+double dvar = 3.1415926;
+float fvar = (float)dvar;
+std::string strval = "A string";
+test_enum enumval = Item2;
+nanogui::Color colval(0.5f, 0.5f, 0.7f, 1.f);
 
 // Camera
 Camera cam(0.0f, 0.0f, 20.0f);
@@ -158,6 +198,69 @@ public:
         linkedSettings = settings;
     }
 
+    nanogui::Screen *getScreenPointer()
+    {
+        return screen;
+    }
+    void setupGUI()
+    {
+        screen = new nanogui::Screen();
+        screen->initialize(iWindow, false);
+
+        // // Create nanogui gui
+        // bool enabled = true;
+        // nanogui::FormHelper *gui = new nanogui::FormHelper(screen);
+        // nanogui::ref<nanogui::Window> nanoguiWindow = gui->add_window(nanogui::Vector2i(30, 30), "Form helper example");
+        // gui->add_group("Basic types");
+        // gui->add_variable("bool", bvar)->set_tooltip("Test tooltip.");
+        // gui->add_variable("string", strval);
+
+        // gui->add_group("Validating fields");
+        // gui->add_variable("int", ivar)->set_spinnable(true);
+        // gui->add_variable("float", fvar)->set_tooltip("Test.");
+        // gui->add_variable("double", dvar)->set_spinnable(true);
+
+        // gui->add_group("Complex types");
+        // gui->add_variable("Enumeration", enumval, enabled)->set_items({"Item 1", "Item 2", "Item 3"});
+        // gui->add_variable("Color", colval)
+        //     ->set_final_callback([](const nanogui::Color &c)
+        //                          { std::cout << "ColorPicker Final Callback: ["
+        //                                      << c.r() << ", "
+        //                                      << c.g() << ", "
+        //                                      << c.b() << ", "
+        //                                      << c.w() << "]" << std::endl; });
+
+        // gui->add_group("Other widgets");
+        // gui->add_button("A button", []()
+        //                 { std::cout << "Button pressed." << std::endl; })
+        //     ->set_tooltip("Testing a much longer tooltip, that will wrap around to new lines multiple times.");
+        // ;
+
+        // screen->set_visible(true);
+        // screen->perform_layout();
+        /* Create an empty panel with a horizontal layout */
+        nanogui::Widget *panel = new nanogui::Widget(screen);
+        panel->set_layout(new nanogui::BoxLayout(nanogui::Orientation::Horizontal, nanogui::Alignment::Middle, 0, 20));
+
+        /* Add a slider and set defaults */
+        nanogui::Slider *slider = new nanogui::Slider(panel);
+        slider->set_value(0.5f);
+        slider->set_fixed_width(80);
+
+        /* Add a textbox and set defaults */
+        nanogui::TextBox *tb = new nanogui::TextBox(panel);
+        tb->set_fixed_size(nanogui::Vector2i(60, 25));
+        tb->set_value("50");
+        tb->set_units("%");
+
+        /* Propagate slider changes to the text box */
+        slider->set_callback([tb](float value)
+                             { tb->set_value(std::to_string((int)(value * 100))); });
+
+        screen->set_visible(true);
+        screen->perform_layout();
+    }
+
 private:
     GLFWwindow *iWindow;
     bool window_error = false;
@@ -188,7 +291,7 @@ void mouse_callback(GLFWwindow *window, double xpos, double ypos)
 {
     if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS)
     {
-        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+        // glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
         if (firstMouse)
         {
             lastX = xpos;
