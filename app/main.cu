@@ -119,11 +119,14 @@ void cleanup(AppSettings *settings)
 
 int main(int argc, char **argv)
 {
+  // nanogui::init();
   // init GL
   glfwInit();
+
   glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
   glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
   glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
   InputWindow *iWindow = new InputWindow(window_width, window_height, application_name);
   if (iWindow->checkWindowCreation())
   {
@@ -132,16 +135,41 @@ int main(int argc, char **argv)
   GLFWwindow *window = iWindow->getWindowPointer();
   Camera *cam = getCameraPointer();
 
+  // setup GUI
+  nanogui::Screen *screen = new nanogui::Screen;
+  screen->initialize(window, true);
+  // nanogui::Screen app{{(int)window_width, (int)window_height}, application_name};
+
+  // nanogui::Window window{&app, ""};
+
+  // printf("DEBUG: before GUI setup\n");
+  screen->set_position({15, 15});
+  screen->set_layout(new nanogui::GroupLayout(5, 5, 0, 0));
+
+  nanogui::Label *l = new nanogui::Label(screen, "MODULATION", "sans-bold");
+  l->set_font_size(10);
+  nanogui::Slider *slider = new nanogui::Slider(screen);
+  slider->set_value(0.5f);
+  float modulation = 5.0f;
+  slider->set_callback([&modulation](float value)
+                       { modulation = value * 10.0f; });
+
+  // Do the layout calculations based on what was added to the GUI
+  screen->perform_layout();
+  // printf("DEBUG: gui draw init\n");
+  screen->draw_all();
+
+  screen->set_visible(true);
+
   // register callbacks
   glfwSetCursorPosCallback(window, mouse_callback);
   glfwSetScrollCallback(window, scroll_callback);
-  glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+  // glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
-  // setup GUI
-  nanogui::Screen *screenPtr = nullptr;
-  iWindow->setupGUI();
-  screenPtr = iWindow->getScreenPointer();
-
+  // iWindow->setupGUI();
+  // screenPtr = iWindow->getScreenPointer();
+  // screenPtr->draw_all();
+  // screenPtr->set_visible(true);
   /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   // initializations
   AppSettings *settings = new AppSettings(window_width, window_height, texture_1); // initialize application settings
@@ -176,7 +204,7 @@ int main(int argc, char **argv)
 
   settings->update();
   /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-  glDisable(GL_DEPTH_TEST);
+
   int frame = 0;
   // start rendering mainloop
   while (!glfwWindowShouldClose(window))
@@ -213,7 +241,20 @@ int main(int argc, char **argv)
     //////////////////////////////////////////////////////////////////////////////////////
     // display molecule
 
-    draw(window_width, window_height, VAO, &texture_1, screenPtr);
+    // draw(window_width, window_height, VAO, &texture_1, &app);
+    glClearColor(0, 0, 0, 1);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+
+    // glBindVertexArray(VAO);
+    // glDisable(GL_DEPTH_TEST);
+    // glBindTexture(GL_TEXTURE_2D, texture_1);
+    // glDrawArrays(GL_TRIANGLES, 0, 6);
+    // glBindBuffer(GL_ARRAY_BUFFER, 0);
+    // glBindVertexArray(0);
+    // glBindTexture(GL_TEXTURE_2D, 0);
+    // glDeleteTextures(1, &texture_1);
+    screen->draw_contents();
+    screen->draw_widgets();
 
     //////////////////////////////////////////////////////////////////////////////////////
 
@@ -255,6 +296,8 @@ int main(int argc, char **argv)
   delete iWindow;
   std::cout << "task completed" << std::endl;
 
-  glfwTerminate();
+  // // glfwTerminate();
+  // nanogui::shutdown();
+  // exit(EXIT_SUCCESS);
   return 0;
 }
