@@ -27,15 +27,14 @@ find_package(OpenGL REQUIRED)
 
 # # Define common paths
 set(DEP_DIR ${CMAKE_CURRENT_BINARY_DIR}/dep)
-set(GLAD_INSTALL_DIR ${DEP_DIR}/glad/install)
-set(GLFW_INSTALL_DIR ${DEP_DIR}/glfw/install)
-set(GLM_INSTALL_DIR ${DEP_DIR}/glm/install)
-set(NANOGUI_INSTALL_DIR ${CMAKE_BINARY_DIR}/external/nanogui-install)
+set(GLAD_INSTALL_DIR ${DEP_DIR}/glad)
+set(GLFW_INSTALL_DIR ${DEP_DIR}/glfw)
+set(GLM_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/ext/glm)
 
 ####################################################################
 ### external projects ##############################################
 ####################################################################
-# Add OpenGL, glfw, glad, glm and nanogui as external project
+# Add glfw, glad as external project
 include(ExternalProject)
 
 SET(CMAKE_EXE_LINKER_FLAGS /NODEFAULTLIB:\"libcmt.lib\")
@@ -67,39 +66,21 @@ CMAKE_ARGS      -DCMAKE_INSTALL_PREFIX:PATH=${GLAD_INSTALL_DIR}
                 -DUSE_MSVC_RUNTIME_LIBRARY_DLL:BOOL=OFF
 )
 
-set(libGLM glm)
-ExternalProject_Add(${libGLM}
-    PREFIX ${DEP_DIR}/${libGLM}
-    GIT_REPOSITORY https://github.com/g-truc/glm.git
-    LOG_DOWNLOAD ON
-    BUILD_COMMAND ""
-    INSTALL_COMMAND   ""
-    UPDATE_DISCONNECTED 1 # Do not update the external project if it is already downloaded
-    CMAKE_ARGS  -DCMAKE_INSTALL_PREFIX:PATH=${GLM_INSTALL_DIR}
-                -DGLAD_INSTALL:BOOL=ON
-                -DGLAD_PROFILE:STRING="core"
-                -DGLAD_ALL_EXTENSIONS:BOOL=ON
-                -DUSE_MSVC_RUNTIME_LIBRARY_DLL:BOOL=OFF
-    )
+# set(libGLM glm)
+# ExternalProject_Add(${libGLM}
+#     PREFIX ${DEP_DIR}/${libGLM}
+#     GIT_REPOSITORY https://github.com/g-truc/glm.git
+#     LOG_DOWNLOAD ON
+#     BUILD_COMMAND ""
+#     INSTALL_COMMAND   ""
+#     UPDATE_DISCONNECTED 1 # Do not update the external project if it is already downloaded
+#     CMAKE_ARGS  -DCMAKE_INSTALL_PREFIX:PATH=${GLM_INSTALL_DIR}
+#                 -DGLAD_INSTALL:BOOL=ON
+#                 -DGLAD_PROFILE:STRING="core"
+#                 -DGLAD_ALL_EXTENSIONS:BOOL=ON
+#                 -DUSE_MSVC_RUNTIME_LIBRARY_DLL:BOOL=OFF
+#     )
 
-# Define the options to pass to NanoGUI's CMake build
-set(NANOGUI_CMAKE_ARGS
-    "-DCMAKE_INSTALL_PREFIX=${NANOGUI_INSTALL_DIR}"
-    "-DNANOGUI_BUILD_SHARED=OFF"  # You can adjust these options based on your needs
-    "-DNANOGUI_BUILD_EXAMPLES=OFF"
-    "-DNANOGUI_BUILD_PYTHON=OFF"
-    "-DNANOGUI_BUILD_GLFW=ON"
-)
-
-# Download and build NanoGUI as an external project
-ExternalProject_Add(
-    NanoGUI
-    GIT_REPOSITORY https://github.com/mitsuba-renderer/nanogui.git
-    GIT_TAG master  # Specify the version or commit hash if needed
-    CMAKE_ARGS ${NANOGUI_CMAKE_ARGS}
-    UPDATE_DISCONNECTED 1  # Disable automatic updates
-    INSTALL_DIR ${NANOGUI_INSTALL_DIR}
-)
 
 # SETUP GLFW
 add_library(GLFW_LIBRARY OBJECT IMPORTED)
@@ -111,6 +92,15 @@ add_library(GLAD_LIBRARY OBJECT IMPORTED)
 set_target_properties(GLAD_LIBRARY PROPERTIES IMPORTED_OBJECTS ${GLAD_INSTALL_DIR}/lib/glad.lib)
 set_property(TARGET GLAD_LIBRARY PROPERTY IMPORTED_LOCATION ${GLAD_INSTALL_DIR})
 
+# SETUP IMGUI
+file(GLOB_RECURSE IMGUI_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/ext/imgui/*.cpp")
+add_library(IMGUI STATIC ${IMGUI_SOURCES})
+target_include_directories(IMGUI PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/ext/imgui"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ext/imgui/backends"
+    "${GLFW_INSTALL_DIR}/include"
+)
+
 ####################################################################
 ### project files ##################################################
 ####################################################################
@@ -120,9 +110,11 @@ set_property(TARGET GLAD_LIBRARY PROPERTY IMPORTED_LOCATION ${GLAD_INSTALL_DIR})
 file(GLOB_RECURSE app CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/app/*.cu")
 file(GLOB_RECURSE headers CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h")
 file(GLOB_RECURSE headers CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/include/*.hpp")
+file(GLOB_RECURSE headers CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/ext/glm/glm/*.hpp")
 file(GLOB_RECURSE headers CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/include/*.cuh")
 file(GLOB_RECURSE sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 file(GLOB_RECURSE sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.c")
+
 
 
 # Create a single .lib file containing our compiled objects, and the compiled objects of all other dependencies
@@ -133,11 +125,11 @@ add_library(${PROJECT_NAME} STATIC ${app} ${headers} ${sources})
 target_include_directories(${PROJECT_NAME}
     PUBLIC ${GLAD_INSTALL_DIR}/include
     PUBLIC ${GLFW_INSTALL_DIR}/include
-    PUBLIC ${GLM_INSTALL_DIR}/include
-    PUBLIC ${NANOGUI_INSTALL_DIR}/include
+    PUBLIC ${GLM_INCLUDE}
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/app
+    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/ext/imgui
 )
 
 # copy shaders
@@ -149,7 +141,7 @@ add_custom_target(copy_shaders ALL
 
   # Specify the order in which libs depend on each other
 add_dependencies(${PROJECT_NAME} ${libGLFW} ${libGLAD} copy_shaders)
-target_link_libraries(${PROJECT_NAME} GLAD_LIBRARY GLFW_LIBRARY)
+target_link_libraries(${PROJECT_NAME} GLAD_LIBRARY GLFW_LIBRARY IMGUI)
 
 ####################################################################
 ### cuda configurations ############################################
@@ -192,8 +184,7 @@ add_executable(${EXECUTABLE_NAME}  app/main.cu)
 target_include_directories(${EXECUTABLE_NAME}
     PUBLIC ${GLAD_INSTALL_DIR}/include
     PUBLIC ${GLFW_INSTALL_DIR}/include
-    PUBLIC ${GLM_INSTALL_DIR}/include
-    PUBLIC ${NANOGUI_INSTALL_DIR}/include
+    PUBLIC ${GLM_INCLUDE}
     PUBLIC ${GLAD_C_DIR}
 )
 
@@ -201,4 +192,4 @@ set_property(TARGET ${EXECUTABLE_NAME}
              PROPERTY CUDA_SEPARABLE_COMPILATION ON
              CUDA_RESOLVE_DEVICE_SYMBOLS ON
              )
-target_link_libraries(${EXECUTABLE_NAME} ${PROJECT_NAME} ${NANOGUI_INSTALL_DIR}/lib/nanogui.lib)
+target_link_libraries(${EXECUTABLE_NAME} ${PROJECT_NAME})

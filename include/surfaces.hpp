@@ -24,6 +24,7 @@
 #include <helper_math.h> // includes vector types
 #include <sorter.cuh>
 #include <simulation_config.hpp>
+#include <solver_newton.hpp>
 
 typedef unsigned int uint;
 
@@ -49,12 +50,6 @@ struct hitInfo
     bool isInGrid;
     bool traversedGrid;
 };
-
-// struct voxel
-// {
-//     int start_cell;
-//     int cell_count;
-// };
 
 __host__ __device__ float calcSignedDistanceSphere(float4 p, float4 atom)
 {
@@ -133,13 +128,15 @@ __device__ int castVoxelToId(int4 voxel_dim, int voxel_x, int voxel_y, int voxel
     return id;
 }
 /**
- * @brief calculate the intersection point between two spheres, that is closest to a sample point/position p
+ * @brief calculate the intersection point between two spheres (analytically), that is closest to a sample point/position p
  *
  * @param p
  * @param atom1
  * @param atom2
+ * @param x // for debugging purposes
+ * @param y // for debugging purposes
  */
-__device__ float4 intersectTwoSpheres(float4 p, float4 atom1, float4 atom2, float x, float y)
+__device__ float4 intersectTwoSpheres1(float4 p, float4 atom1, float4 atom2, float x = 0, float y = 0)
 {
     // calculate distance to midpoint between atoms (2nd intercept theorem)
     float d = length(atom1 - atom2);
@@ -161,6 +158,46 @@ __device__ float4 intersectTwoSpheres(float4 p, float4 atom1, float4 atom2, floa
 
     return intersec;
 }
+/**
+ * @brief calculate the intersection point between two spheres (newton iterations), that is closest to a sample point/position p
+ *
+ * @param p
+ * @param atom1
+ * @param atom2
+ * @param x // for debugging purposes
+ * @param y // for debugging purposes
+ */
+__device__ float4 intersectTwoSpheres2(float4 p, float4 atom1, float4 atom2, SimulationParams *params, float x = 0, float y = 0)
+{
+    float delta = INFINITY;
+    float3 intersec_prev = make_float3(p.x, p.y, p.z);
+    float3 intersec;
+    int solver_iter = 0; // for debugging
+    while (delta > params->epsilon)
+    {
+        float3 a = make_float3((atom1 - p) / (length(atom1 - p)));
+        float3 b = make_float3((atom2 - p) / (length(atom2 - p)));
+        float3 c = cross(a, b);
+        float3 v = make_float3(atom1.w - length(p - atom1), atom2.w - length(p - atom2), 0); // TODO: check if x & y component need "+ solvent radius"
+        float m_det = dot(c, c);
+        (m_det == 0.0f) ? m_det = params->epsilon : m_det = 1 / m_det;
+        float3 m1 = make_float3(a.y * b.z - a.z * b.y, b.y * c.z - b.z * c.y, c.y * a.z - c.z * a.y);
+        float3 m2 = make_float3(a.z * b.x - a.x * b.z, b.z * c.x - b.x * c.z, c.z * a.x - c.x * a.z);
+        float3 m3 = make_float3(a.x * b.y - a.y * b.x, b.x * c.y - b.y * c.x, c.x * a.y - c.y * a.x);
+        intersec += m_det * dot(v, m1);
+        intersec += m_det * dot(v, m2);
+        intersec += m_det * dot(v, m3);
+
+        delta = length(intersec - intersec_prev);
+        intersec_prev = intersec;
+
+        // for debugging
+        solver_iter++;
+    }
+    float4 res = make_float4(intersec.x, intersec.y, intersec.z, 0);
+
+    return res;
+}
 
 __device__ bool in_triangle(float4 p, float4 c1, float4 c2, float4 intersect)
 {
@@ -179,19 +216,19 @@ __device__ bool in_triangle(float4 p, float4 c1, float4 c2, float4 intersect)
         return true;
 }
 
-__device__ pairFloat4 calculate_case3(float4 p, float4 c1, float4 c2, float4 c3, float4 surface_hit, Atom atoms[], int atom_count, float epsilon)
+__device__ pairFloat4 intersectThreeSpheres1(float4 p, float4 atom1, float4 atom2, float4 atom3)
 {
-    float4 base1 = c2 - c1;
-    float4 base2 = c3 - c1;
+    float4 base1 = atom2 - atom1;
+    float4 base2 = atom3 - atom1;
     float b1 = length(base1);
     float b2 = length(base2);
 
     float4 i = normalize(base1);
     float4 j = normalize((base2 - dot(base2, i) * i));
 
-    float r_squared1 = c1.w * c1.w;
-    float r_squared2 = c2.w * c2.w;
-    float r_squared3 = c3.w * c3.w;
+    float r_squared1 = atom1.w * atom1.w;
+    float r_squared2 = atom2.w * atom2.w;
+    float r_squared3 = atom3.w * atom3.w;
 
     float x = (r_squared1 - r_squared2 + b1 * b1) / (2 * b1);
     float y = (r_squared1 - r_squared3 + b2 * b2 - 2 * dot(base2, i) * x) / (2 * dot(base2, j));
@@ -199,10 +236,42 @@ __device__ pairFloat4 calculate_case3(float4 p, float4 c1, float4 c2, float4 c3,
 
     pairFloat4 hit;
 
-    hit.values[0] = c1 + i * x + j * y + cross(i, j) * z;
-    hit.values[1] = c1 + i * x + j * y - cross(i, j) * z;
+    hit.values[0] = atom1 + i * x + j * y + cross(i, j) * z;
+    hit.values[1] = atom1 + i * x + j * y - cross(i, j) * z;
 
     return hit;
+}
+
+__device__ float4 intersectThreeSpheres2(float4 p, float4 atom1, float4 atom2, float4 atom3, SimulationParams *params)
+{
+    float delta = INFINITY;
+    float3 intersec_prev = make_float3(p.x, p.y, p.z);
+    float3 intersec;
+    int solver_iter = 0; // for debugging
+    while (delta > params->epsilon)
+    {
+        float3 a = make_float3((atom1 - p) / (length(atom1 - p)));
+        float3 b = make_float3((atom2 - p) / (length(atom2 - p)));
+        float3 c = make_float3((atom3 - p) / (length(atom3 - p)));
+        float3 v = make_float3(atom1.w - length(p - atom1), atom2.w - length(p - atom2), atom3.w - length(p - atom3)); // TODO: check if x & y component need "+ solvent radius"
+        float m_det = dot(c, c);
+        (m_det == 0.0f) ? m_det = params->epsilon : m_det = 1 / m_det; // inverse of matrix not defined for determinant of zero
+        float3 m1 = make_float3(a.y * b.z - a.z * b.y, b.y * c.z - b.z * c.y, c.y * a.z - c.z * a.y);
+        float3 m2 = make_float3(a.z * b.x - a.x * b.z, b.z * c.x - b.x * c.z, c.z * a.x - c.x * a.z);
+        float3 m3 = make_float3(a.x * b.y - a.y * b.x, b.x * c.y - b.y * c.x, c.x * a.y - c.y * a.x);
+        intersec += m_det * dot(v, m1);
+        intersec += m_det * dot(v, m2);
+        intersec += m_det * dot(v, m3);
+
+        delta = length(intersec - intersec_prev);
+        intersec_prev = intersec;
+
+        // for debugging
+        solver_iter++;
+    }
+    float4 res = make_float4(intersec.x, intersec.y, intersec.z, 0);
+
+    return res;
 }
 
 __device__ float calculateDistanceToGrid(float4 ray_pos, float4 ray_dir, SimulationParams params, int frame, int x = 0, int y = 0)
@@ -490,7 +559,6 @@ __device__ float computeSurface(float4 ray_pos, float4 ray_dir, float4 *molecule
         // 2 // determine k closest points
         ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
         // allocate array for ids of k atoms closest to p
-        // TODO: add checks in settings, that k_nearest is smaller or equal to numAtoms
         // find the k nearest atoms
 
         if (!params.use_voxel)
@@ -591,45 +659,53 @@ __device__ float computeSurface(float4 ray_pos, float4 ray_dir, float4 *molecule
             // 4 // intersection with two atoms (arc)
 
             bool surface_found = false;
-            if (params.use_iterative_solver)
+
+            // calculate all intersection points for the group of nearest atoms
+            for (unsigned int i = 0; i < params.k_nearest - 1; i++)
             {
-                /* code */
-            }
-            else
-            {
-                // calculate all intersection points for the group of nearest atoms
-                for (unsigned int i = 0; i < params.k_nearest - 1; i++)
+                for (unsigned int j = i + 1; j < params.k_nearest; j++)
                 {
-                    for (unsigned int j = i + 1; j < params.k_nearest; j++)
+
+                    switch (params.solver)
                     {
-                        surface_hit = intersectTwoSpheres(ray_pos, nearest_atoms[i].location, nearest_atoms[j].location, x, y);
+                    case 0:
+                        surface_hit = intersectTwoSpheres1(ray_pos, nearest_atoms[i].location, nearest_atoms[j].location, x, y);
+                        break;
+                    case 1:
+                        // TODO:
+                        break;
 
-                        // check if points lie in correct section (arc) of the surface
-                        bool triangle = in_triangle(ray_pos, nearest_atoms[i].location, nearest_atoms[j].location, surface_hit);
-                        // check if point lies on the surface
-                        bool surface = (abs(calcSignedDistanceOuter(surface_hit, nearest_atoms, params.k_nearest)) < params.epsilon);
-                        if (triangle && surface)
-                        {
-                            surface_found = true;
-                            surfacePointData->collisionType = 2;
-                            surfacePointData->bondId1 = nearest_atoms[j].id;
-                            surfacePointData->bondId2 = nearest_atoms[i].id;
-                            surfacePointData->surfaceHit = surface_hit;
-
-                            break;
-                        }
+                    default:
+                        if (frame == 0 && x == 0 && y == 0)
+                            printf("ERROR: invalid solver. Solver %i is not defined.\n", params.solver);
+                        break;
                     }
-                    if (surface_found)
+
+                    // check if points lie in correct section (arc) of the surface
+                    bool triangle = in_triangle(ray_pos, nearest_atoms[i].location, nearest_atoms[j].location, surface_hit);
+                    // check if point lies on the surface
+                    bool surface = (abs(calcSignedDistanceOuter(surface_hit, nearest_atoms, params.k_nearest)) < params.epsilon);
+                    if (triangle && surface)
                     {
-                        if (params.debug_mode && params.debug_frame == 0 && (x == (int)params.mouse_x_pos) && (y == (int)params.mouse_y_pos))
-                        {
-                            printf("%i|%i|%s|%.5f|%.5f|%.5f|%i|%.5f|%i|%i|%i\n", params.debug_frame, step, "compute_case2",
-                                   ray_pos.x, ray_pos.y, ray_pos.z, (int)surfacePointData->isInGrid, f_sdf,
-                                   (int)surfacePointData->bondId1, (int)surfacePointData->bondId2, -1);
-                        }
+                        surface_found = true;
+                        surfacePointData->collisionType = 2;
+                        surfacePointData->bondId1 = nearest_atoms[j].id;
+                        surfacePointData->bondId2 = nearest_atoms[i].id;
+                        surfacePointData->surfaceHit = surface_hit;
 
                         break;
                     }
+                }
+                if (surface_found)
+                {
+                    if (params.debug_mode && params.debug_frame == 0 && (x == (int)params.mouse_x_pos) && (y == (int)params.mouse_y_pos))
+                    {
+                        printf("%i|%i|%s|%.5f|%.5f|%.5f|%i|%.5f|%i|%i|%i\n", params.debug_frame, step, "compute_case2",
+                               ray_pos.x, ray_pos.y, ray_pos.z, (int)surfacePointData->isInGrid, f_sdf,
+                               (int)surfacePointData->bondId1, (int)surfacePointData->bondId2, -1);
+                    }
+
+                    break;
                 }
             }
 
@@ -639,20 +715,18 @@ __device__ float computeSurface(float4 ray_pos, float4 ray_dir, float4 *molecule
             // 5 // intersection with three atoms (spherical triangle)
             if (!surface_found)
             {
-                if (params.use_iterative_solver)
+                bool first = true;
+                for (unsigned int i = 0; i < params.k_nearest - 2; i++)
                 {
-                    /* code */
-                }
-                else
-                {
-                    bool first = true;
-                    for (unsigned int i = 0; i < params.k_nearest - 2; i++)
+                    for (unsigned int j = i + 1; j < params.k_nearest - 1; j++)
                     {
-                        for (unsigned int j = i + 1; j < params.k_nearest - 1; j++)
+                        for (unsigned int k = j + 1; k < params.k_nearest; k++)
                         {
-                            for (unsigned int k = j + 1; k < params.k_nearest; k++)
+                            switch (params.solver)
                             {
-                                pairFloat4 s_pot = calculate_case3(ray_pos, nearest_atoms[i].location, nearest_atoms[j].location, nearest_atoms[k].location, surface_hit, nearest_atoms, params.k_nearest, params.epsilon);
+                            case 0:
+                            {
+                                pairFloat4 s_pot = intersectThreeSpheres1(ray_pos, nearest_atoms[i].location, nearest_atoms[j].location, nearest_atoms[k].location);
 
                                 // every case 3 has two potential surface points. loop over both and determine it's distance to the current position.
                                 // -> bool first ensures that both distances are tested, if both points of a potential pair lie on the surface
@@ -685,29 +759,39 @@ __device__ float computeSurface(float4 ray_pos, float4 ray_dir, float4 *molecule
                                         }
                                     }
                                 }
+                                break;
+                            }
+                            case 1:
+                                break;
+                            default:
+                            {
+                                if (frame == 0 && x == 0 && y == 0)
+                                    printf("ERROR: invalid solver. Solver %i is not defined.\n", params.solver);
+                                break;
+                            }
                             }
                         }
                     }
-                    if (surface_found)
+                }
+                if (surface_found)
+                {
+                    surfacePointData->surfaceHit = surface_hit;
+                    surfacePointData->collisionType = 3;
+                    if (params.debug_mode && params.debug_frame == 0 && (x == (int)params.mouse_x_pos) && (y == (int)params.mouse_y_pos))
                     {
-                        surfacePointData->surfaceHit = surface_hit;
-                        surfacePointData->collisionType = 3;
-                        if (params.debug_mode && params.debug_frame == 0 && (x == (int)params.mouse_x_pos) && (y == (int)params.mouse_y_pos))
-                        {
-                            printf("%i|%i|%s|%.5f|%.5f|%.5f|%i|%.5f|%i|%i|%i\n", params.debug_frame, step, "compute_case3",
-                                   ray_pos.x, ray_pos.y, ray_pos.z, (int)surfacePointData->isInGrid, f_sdf,
-                                   (int)surfacePointData->bondId1, (int)surfacePointData->bondId2, (int)surfacePointData->bondId3);
-                        }
+                        printf("%i|%i|%s|%.5f|%.5f|%.5f|%i|%.5f|%i|%i|%i\n", params.debug_frame, step, "compute_case3",
+                               ray_pos.x, ray_pos.y, ray_pos.z, (int)surfacePointData->isInGrid, f_sdf,
+                               (int)surfacePointData->bondId1, (int)surfacePointData->bondId2, (int)surfacePointData->bondId3);
                     }
-                    else
+                }
+                else
+                {
+                    surfacePointData->collisionType = 4;
+                    if (params.debug_mode && params.debug_frame == 0 && (x == (int)params.mouse_x_pos) && (y == (int)params.mouse_y_pos))
                     {
-                        surfacePointData->collisionType = 4;
-                        if (params.debug_mode && params.debug_frame == 0 && (x == (int)params.mouse_x_pos) && (y == (int)params.mouse_y_pos))
-                        {
-                            printf("%i|%i|%s|%.5f|%.5f|%.5f|%i|%.5f|%i|%i|%i\n", params.debug_frame, step, "compute_case4",
-                                   ray_pos.x, ray_pos.y, ray_pos.z, (int)surfacePointData->isInGrid, f_sdf,
-                                   -1, -1, -1);
-                        }
+                        printf("%i|%i|%s|%.5f|%.5f|%.5f|%i|%.5f|%i|%i|%i\n", params.debug_frame, step, "compute_case4",
+                               ray_pos.x, ray_pos.y, ray_pos.z, (int)surfacePointData->isInGrid, f_sdf,
+                               -1, -1, -1);
                     }
                 }
             }

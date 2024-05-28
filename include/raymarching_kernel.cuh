@@ -22,22 +22,18 @@
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 // CUDA resources to write to OpenGL texture
-cudaGraphicsResource_t cuda_resource_1, cuda_resource_2;     // cuda resource to write to
-cudaArray *cuda_tex_array_1, *cuda_tex_array_2;              // cuda array to access texture
-cudaResourceDesc cuda_resource_desc_1, cuda_resource_desc_2; // resource description for surface
+// extern cudaGraphicsResource_t cuda_resource_1, cuda_resource_2;
+extern const unsigned int CUDA_RESOURCE_COUNT;
+extern cudaGraphicsResource_t *cuda_resources;
+extern cudaResourceDesc *cuda_resource_descs;
+cudaArray *cuda_tex_array_1, *cuda_tex_array_2; // cuda array to access texture
+// cudaResourceDesc cuda_resource_desc_1, cuda_resource_desc_2; // resource description for surface
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 const int TEST_SIZE = 10;
 const int MAX_STEP = 10000;
 
 // simulation parameters in constant memory
 __constant__ SimulationParams params;
-
-void createResourceDesciption()
-{
-    // initialize resource desciption for surface
-    memset(&cuda_resource_desc_1, 0, sizeof(cuda_resource_desc_1));
-    cuda_resource_desc_1.resType = cudaResourceTypeArray;
-}
 
 void setParameters(SimulationParams hostParams)
 {
@@ -410,10 +406,10 @@ void runCuda(Camera *cam, SimulationParams host_params, float4 *molecule, uint *
     // cudaArray *resArray_1;             //*resArray_2;
     cudaSurfaceObject_t surf_object_1; // surf_object_2;
 
-    checkCudaErrors(cudaGraphicsMapResources(1, &cuda_resource_1, (cudaStream_t)0));                  // map resource 1 for even frames
-    checkCudaErrors(cudaGraphicsSubResourceGetMappedArray(&cuda_tex_array_1, cuda_resource_1, 0, 0)); // get pointer to texture 1 for cuda
-    cuda_resource_desc_1.res.array.array = cuda_tex_array_1;                                          // set cuda resource description for surface 1
-    checkCudaErrors(cudaCreateSurfaceObject(&surf_object_1, &cuda_resource_desc_1));                  // create surface object 1
+    checkCudaErrors(cudaGraphicsMapResources(1, &cuda_resources[0], (cudaStream_t)0));                  // map resource 1 for even frames
+    checkCudaErrors(cudaGraphicsSubResourceGetMappedArray(&cuda_tex_array_1, cuda_resources[0], 0, 0)); // get pointer to texture 1 for cuda
+    cuda_resource_descs[0].res.array.array = cuda_tex_array_1;                                          // set cuda resource description for surface 1
+    checkCudaErrors(cudaCreateSurfaceObject(&surf_object_1, &cuda_resource_descs[0]));                  // create surface object 1
     ////////////////////////////////////////////////////////////////////////////////////////////////
 
     ////////////////////////////////////////////////////////////////////////////////////////////////
@@ -436,7 +432,7 @@ void runCuda(Camera *cam, SimulationParams host_params, float4 *molecule, uint *
 
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // unmap resources
-    checkCudaErrors(cudaGraphicsUnmapResources(1, &cuda_resource_1, (cudaStream_t)0));
+    checkCudaErrors(cudaGraphicsUnmapResources(1, &cuda_resources[0], (cudaStream_t)0));
 
     ////////////////////////////////////////////////////////////////////////////////////////////////
 }

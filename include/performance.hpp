@@ -7,6 +7,7 @@
 #define INFINITY 1e8
 #endif
 
+// TODO: obsolete with ImGui interface
 /**
  * @brief class to calculate performance metrics over a given time interval.
  * Measurements will be restarted every new intervall

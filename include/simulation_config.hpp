@@ -29,7 +29,7 @@ struct SimulationParams
     uint k_nearest;
     bool is_SES;
     bool use_voxel;
-    bool use_iterative_solver;
+    int solver;
     float solvent_radius;
     float solvent_max;
     float epsilon;

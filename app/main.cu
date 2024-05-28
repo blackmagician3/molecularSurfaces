@@ -18,7 +18,9 @@
 #include "camera.hpp"
 
 // includes GUI
-#include <nanogui/nanogui.h>
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_opengl3.h"
 
 // includes cuda
 #include <cuda_runtime.h>
@@ -27,16 +29,14 @@
 // Utility functions
 #include <helper_math.h> // includes vector types
 
-// #include <timer.h>               // timing functions
-
 // CUDA helper functions
 #include <helper_cuda.h> // helper functions for CUDA error check
-// #include <helper_cuda_gl.h>      // helper functions for CUDA/GL interop
+#include <cuda_inits.cuh>
 
 #include <application_settings.hpp>
 #include <raymarching_kernel.cuh>
 #include <inputWindow.hpp>
-#include <performance.hpp>
+// #include <performance.hpp>
 
 /////////////////////////////////////////////////////////////////////////////
 //////// CONSTANTS //////////////////////////////////////////////////////////
@@ -58,68 +58,27 @@ const unsigned int window_height = 1080;
 
 const char application_name[] = "Molecular Surfaces";
 
-extern cudaGraphicsResource_t cuda_resource_1, cuda_resource_2;
+// extern cudaGraphicsResource_t cuda_resource_1, cuda_resource_2;
+extern cudaGraphicsResource_t *cuda_resources;
 
 // timing
 float deltaTime = 0.0f; // time between current frame and last frame
 float lastFrame = 0.0f;
 
-GLuint texture_1; // textures used as buffer between CUDA and OpenGL
+std::chrono::system_clock::time_point start_time = std::chrono::system_clock::now();
+
+extern GLuint *cuda_textures; // cuda_textures used as buffer between CUDA and OpenGL
 
 /////////////////////////////////////////////////////////////////////////////
 //////// FUNCTIONS //////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
 
-void createTextureBuffers()
-{
-  glEnable(GL_TEXTURE_2D);
-
-  ////////////////////////////////////////////////////////////////////////////////
-  // initialize texture 1
-  glGenTextures(1, &texture_1);
-  glBindTexture(GL_TEXTURE_2D, texture_1);
-
-  // initialize texture with glTexImage2D
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F_ARB, window_width, window_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-
-  // texture wrapping
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  // texture filtering
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-
-  // TODO implement second texture as buffer for read (OpenGL) and write (CUDA)
-
-  glBindTexture(GL_TEXTURE_2D, 0);
-
-  // register OpenGL textures with CUDA
-  checkCudaErrors(cudaGraphicsGLRegisterImage(&cuda_resource_1, texture_1, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsWriteDiscard));
-
-  createResourceDesciption();
-}
-
-void cleanup(AppSettings *settings)
-{
-  cudaGraphicsUnregisterResource(cuda_resource_1);
-
-  glDeleteTextures(1, &texture_1);
-
-  delete settings;
-  // cudaDeviceReset causes the driver to clean up all state. While
-  // not mandatory in normal operation, it is good practice.  It is also
-  // needed to ensure correct operation when the application is being
-  // profiled. Calling cudaDeviceReset causes all profile data to be
-  // flushed before the application exits
-  cudaDeviceReset();
-}
 /////////////////////////////////////////////////////////////////////////////
 //////// MAIN ///////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
 
 int main(int argc, char **argv)
 {
-  // nanogui::init();
   // init GL
   glfwInit();
 
@@ -135,51 +94,31 @@ int main(int argc, char **argv)
   GLFWwindow *window = iWindow->getWindowPointer();
   Camera *cam = getCameraPointer();
 
-  // setup GUI
-  nanogui::Screen *screen = new nanogui::Screen;
-  screen->initialize(window, true);
-  // nanogui::Screen app{{(int)window_width, (int)window_height}, application_name};
-
-  // nanogui::Window window{&app, ""};
-
-  // printf("DEBUG: before GUI setup\n");
-  screen->set_position({15, 15});
-  screen->set_layout(new nanogui::GroupLayout(5, 5, 0, 0));
-
-  nanogui::Label *l = new nanogui::Label(screen, "MODULATION", "sans-bold");
-  l->set_font_size(10);
-  nanogui::Slider *slider = new nanogui::Slider(screen);
-  slider->set_value(0.5f);
-  float modulation = 5.0f;
-  slider->set_callback([&modulation](float value)
-                       { modulation = value * 10.0f; });
-
-  // Do the layout calculations based on what was added to the GUI
-  screen->perform_layout();
-  // printf("DEBUG: gui draw init\n");
-  screen->draw_all();
-
-  screen->set_visible(true);
-
   // register callbacks
   glfwSetCursorPosCallback(window, mouse_callback);
   glfwSetScrollCallback(window, scroll_callback);
   // glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
-  // iWindow->setupGUI();
-  // screenPtr = iWindow->getScreenPointer();
-  // screenPtr->draw_all();
-  // screenPtr->set_visible(true);
+  // setup imgui
+  IMGUI_CHECKVERSION();
+  ImGui::CreateContext();
+  ImGuiIO &io = ImGui::GetIO();
+  (void)io;
+  // io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard Controls
+  ImGui::StyleColorsDark();
+  ImGui_ImplGlfw_InitForOpenGL(window, true);
+  ImGui_ImplOpenGL3_Init();
+
   /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   // initializations
-  AppSettings *settings = new AppSettings(window_width, window_height, texture_1); // initialize application settings
+  AppSettings *settings = new AppSettings(window_width, window_height, cuda_textures[0]); // initialize application settings
   iWindow->linkSettings(settings);
 
-  createTextureBuffers();                         // create textures
-  Shader quadTex;                                 // create Shader
-  quadTex.init("fb_vertex.vs", "fb_fragment.fs"); // load shaders
-  quadTex.use();                                  // use shader
-  int VAO = quadBuffers();                        // create and bind buffers for quad (used to display the molecule using a texture)
+  createTextureBuffers(settings->getWindowWidth(), settings->getWindowHeight()); // create textures
+  Shader quadTex;                                                                // create Shader
+  quadTex.init("fb_vertex.vs", "fb_fragment.fs");                                // load shaders
+  quadTex.use();                                                                 // use shader
+  int VAO = quadBuffers();                                                       // create and bind buffers for quad (used to display the molecule using a texture)
 
   // testing molecules
   std::string moleculePath = "C:/Users/lukab/OneDrive/Dokumente/repos/molecularSurfaces/testMolecules/3i40.pdb"; // 446 atoms
@@ -196,80 +135,72 @@ int main(int argc, char **argv)
   settings->setEpsilon(0.01);
 
   // performance measuring (disabled by default)
-  settings->changePerformanceDisplay(false); // activate performance measuring
-  PerformanceCounter performance(60);        // add performance counter
-
-  // frames per second limit (0 for unlimited)
-  settings->changeFrameLimit(20);
+  settings->show_performance_tool = false; // activate performance measuring
+  // PerformanceCounter performance(60);      // add performance counter
+  settings->show_gui = true;
 
   settings->update();
   /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-  int frame = 0;
   // start rendering mainloop
   while (!glfwWindowShouldClose(window))
   {
-    //////////////////////////////////////////////////////////////////////////////////////
     // time settings
     float currentFrame = glfwGetTime();
     deltaTime = currentFrame - lastFrame;
     lastFrame = currentFrame;
 
-    //////////////////////////////////////////////////////////////////////////////////////
-    // performance measuring
-    if (settings->getPerformanceDisplay())
-    {
-      performance.runMeasuring(deltaTime);
-    }
-
-    //////////////////////////////////////////////////////////////////////////////////////
-    //////////////////////////////////////////////////////////////////////////////////////
     // handle inputs
+    glfwPollEvents();
     processInput(window, settings, deltaTime); // handle keyboard events
 
-    //////////////////////////////////////////////////////////////////////////////////////
+    // start imgui frame
+    ImGui_ImplOpenGL3_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+    if (settings->show_performance_tool)
+    {
+      setupMetricsTool(settings, start_time);
+      // ImGui::ShowMetricsWindow(&settings->show_performance_tool);
+    }
+    if (settings->show_gui)
+    {
+      setupImgui(settings);
+    }
 
-    //////////////////////////////////////////////////////////////////////////////////////
+    // ImGui::ShowDemoWindow();
 
-    //////////////////////////////////////////////////////////////////////////////////////
     // run CUDA kernel to generate vertex positions
-    runCuda(cam, settings->getAllHostParams(), settings->getDeviceMolecule(), settings->getDeviceColors(), settings->getDeviceVoxelData(), settings->getDeviceVoxelCount(), frame);
-    //////////////////////////////////////////////////////////////////////////////////////
+    runCuda(cam, settings->getAllHostParams(), settings->getDeviceMolecule(), settings->getDeviceColors(), settings->getDeviceVoxelData(), settings->getDeviceVoxelCount(), settings->frame);
 
-    //////////////////////////////////////////////////////////////////////////////////////
-
-    //////////////////////////////////////////////////////////////////////////////////////
     // display molecule
 
-    // draw(window_width, window_height, VAO, &texture_1, &app);
     glClearColor(0, 0, 0, 1);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+    glDisable(GL_DEPTH_TEST);
+    glClear(GL_COLOR_BUFFER_BIT);
 
-    // glBindVertexArray(VAO);
-    // glDisable(GL_DEPTH_TEST);
-    // glBindTexture(GL_TEXTURE_2D, texture_1);
-    // glDrawArrays(GL_TRIANGLES, 0, 6);
-    // glBindBuffer(GL_ARRAY_BUFFER, 0);
-    // glBindVertexArray(0);
-    // glBindTexture(GL_TEXTURE_2D, 0);
-    // glDeleteTextures(1, &texture_1);
-    screen->draw_contents();
-    screen->draw_widgets();
+    glBindVertexArray(VAO);
 
-    //////////////////////////////////////////////////////////////////////////////////////
+    glBindTexture(GL_TEXTURE_2D, cuda_textures[0]);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+
+    // display imgui
+    ImGui::Render();
+    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
     // limit frames per second
     // TODO: sleep function differs under ubuntu and windows
-    if (settings->getFrameLimit() > 0)
+    if (settings->limit_framerate)
     {
       float endTime = glfwGetTime();
       float deltaFrame = endTime - lastFrame;
-      float sleepTime = ((1.0f / settings->getFrameLimit()) - deltaFrame) * 1000.0f;
+      float sleepTime = ((1.0f / settings->frameLimit) - deltaFrame) * 1000.0f;
       if (sleepTime > 0)
         Sleep(sleepTime);
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////
     // debugging
     if (settings->getDebugMode())
     {
@@ -278,26 +209,27 @@ int main(int argc, char **argv)
       settings->setDebugFrame(value);
       settings->update();
     }
-    //////////////////////////////////////////////////////////////////////////////////////
-
-    //////////////////////////////////////////////////////////////////////////////////////
-
-    //////////////////////////////////////////////////////////////////////////////////////
 
     // swap buffers
     glfwSwapBuffers(window);
-    glfwPollEvents();
 
-    frame++;
-    if (frame > INFINITY)
-      frame = 0;
+    settings->frame++;
+    if (settings->frame > INFINITY)
+      settings->frame = 0;
   }
-  cleanup(settings);
-  delete iWindow;
-  std::cout << "task completed" << std::endl;
 
-  // // glfwTerminate();
-  // nanogui::shutdown();
-  // exit(EXIT_SUCCESS);
+  cuda_cleanup();
+
+  ImGui_ImplOpenGL3_Shutdown();
+  ImGui_ImplGlfw_Shutdown();
+  ImGui::DestroyContext();
+
+  delete iWindow;
+  delete settings;
+
+  cudaDeviceReset();
+
+  glfwTerminate();
+  exit(EXIT_SUCCESS);
   return 0;
 }

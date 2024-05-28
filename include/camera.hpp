@@ -196,15 +196,8 @@ public:
 		return vector;
 	}
 
-	void resetCamera(glm::vec3 cameralocation)
+	void resetCamera()
 	{
-		// set position to starting position
-		// TODO: set starting position (z-component based on molecule dimensions)
-		Position = cameralocation;
-
-		// reset focus to the center of the world view
-		Focus = FOCUS;
-
 		// calculate remaining vectors
 		Front = glm::normalize(Focus - Position);
 		Right = glm::normalize(glm::cross(Front, WorldUp));

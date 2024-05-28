@@ -38,7 +38,6 @@ bool readFile(std::string path, float4 **molecule, uint *atom_count)
     std::string delimiter = " ";
     std::string word;
 
-    printf("DEBUG: symbols:\n");
     for (std::string line; std::getline(input_file, line);)
     {
         std::string word = line.substr(0, 6);

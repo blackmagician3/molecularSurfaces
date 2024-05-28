@@ -36,10 +36,9 @@ class AppSettings
 private:
 	bool initialized;
 	bool molecule_loaded;
-	bool performanceDisplay;
-	unsigned int frameLimit;
 	std::string recentFilePath;
 	int voxel_mem;
+	float cam_offset_init;
 
 	// parameters for initialization
 	float4 focusPoint;
@@ -61,9 +60,16 @@ public:
 	int *voxel_data_device;
 	int *voxel_count_device;
 
+	// parameters for gui
+	bool show_gui;
+	bool show_performance_tool;
+	bool limit_framerate;
+	int frameLimit;
+	int frame;
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// functions
-	AppSettings(uint width, uint height, uint texture) : initialized(true), molecule_loaded(false), performanceDisplay(false)
+	AppSettings(uint width, uint height, uint texture) : initialized(true), molecule_loaded(false)
 	{
 		host_params.window_width = width;
 		host_params.window_height = height;
@@ -78,7 +84,7 @@ public:
 		host_params.depth_min = 0.1f;
 		host_params.depth_max = 100.0f;
 		host_params.is_SES = true;
-		host_params.use_iterative_solver = false;
+		host_params.solver = 0;
 		host_params.texture_1 = texture;
 
 		host_params.thread_x = 4;
@@ -92,8 +98,13 @@ public:
 
 		host_params.highlight_radius = 5.0f;
 
-		frameLimit = 0;
+		frameLimit = 60;
 		recentFilePath = "";
+
+		show_gui = true;
+		show_performance_tool = true;
+		limit_framerate = false;
+		frame = 0;
 
 		initialize();
 	}
@@ -105,7 +116,7 @@ public:
 		host_params.thread_x = threads.threadX;
 		host_params.thread_y = threads.threadY;
 
-		printf("INFO: kernel layout set to %i threads per block (%i in x, %i in y)\n", host_params.thread_x * host_params.thread_y, host_params.thread_x, host_params.thread_y);
+		// printf("INFO: kernel layout set to %i threads per block (%i in x, %i in y)\n", host_params.thread_x * host_params.thread_y, host_params.thread_x, host_params.thread_y);
 		initialized = true;
 	}
 	void loadMolecule(std::string path = "")
@@ -141,7 +152,7 @@ public:
 			// molecule = (float4 *)malloc(446 * sizeof(float4));
 			if (readFile(recentFilePath, &molecule, &host_params.numAtoms))
 			{
-				printf("INFO: molecule loaded from path, size = %i atoms\n", host_params.numAtoms);
+				// printf("INFO: molecule loaded from path, size = %i atoms\n", host_params.numAtoms);
 			}
 			else
 			{
@@ -258,13 +269,6 @@ public:
 				// host_params.atomsPerVoxel = 100;
 				checkCudaErrors(cudaFree(d_maxVoxelCount));
 
-				// printf("DEBUG: box_start is: %.5f, %.5f, %.5f\n", host_params.box_start.x, host_params.box_start.y, host_params.box_start.z);
-				// printf("DEBUG: box_end is: %.5f, %.5f, %.5f\n", host_params.box_end.x, host_params.box_end.y, host_params.box_end.z);
-				// printf("DEBUG: voxel_size is: %.5f\n", host_params.voxel_size);
-				// printf("DEBUG: voxel_dim is: %i, %i, %i\n", host_params.voxel_dim.x, host_params.voxel_dim.y, host_params.voxel_dim.z);
-				// printf("DEBUG: voxel_mem is: %i\n", voxel_mem);
-				// printf("DEBUG: atomsPerVoxel is: %i\n", host_params.atomsPerVoxel);
-				// printf("voxel_data: atomsPVoxel = %i, voxel_mem = %i\n", host_params.atomsPerVoxel, voxel_mem);
 				checkCudaErrors(cudaMalloc((void **)&(voxel_data_device), host_params.atomsPerVoxel * voxel_mem * sizeof(int)));
 
 				// initialize grid -> sort atom ids in voxel_data array based on ascending voxel number
@@ -287,7 +291,8 @@ public:
 			focusPoint = 0.5 * (host_params.box_start + host_params.box_end);
 			float zOffset = max(abs(host_params.box_end.x - host_params.box_start.x) * Zoom, abs(host_params.box_end.y - host_params.box_start.y) * Zoom);
 			zOffset = max(zOffset, 0.5 * abs(host_params.box_end.z - host_params.box_start.z));
-			focusPoint.w = zOffset + CAMOFFSET;
+			cam_offset_init = zOffset + CAMOFFSET;
+			focusPoint.w = cam_offset_init;
 			host_params.depth_max = 4 * zOffset + CAMOFFSET;
 		}
 
@@ -306,30 +311,38 @@ public:
 		setParameters(host_params);
 	}
 
-	void reset()
+	void reset_view()
 	{
 		host_params.window_width = 1920;
 		host_params.window_height = 1080;
-
-		host_params.numAtoms = 10;
-		host_params.solvent_radius = 0.1;
-		host_params.epsilon = 0.001;
+		host_params.k_nearest = 10;
+		host_params.solvent_radius = 1.4;
+		host_params.solvent_max = 2;
+		host_params.epsilon = 0.01;
 		host_params.epsilon_squared = host_params.epsilon * host_params.epsilon;
+		host_params.use_voxel = true;
+		host_params.depth_min = 0.1f;
+		host_params.is_SES = true;
+		host_params.solver = 0;
+		host_params.debug_mode = false;
+		host_params.highlight_radius = 5.0f;
+		frameLimit = 60;
 
-		initialize();
+		show_gui = true;
+		show_performance_tool = true;
+		limit_framerate = false;
+		frame = 0;
+
 		if (molecule_loaded)
 		{
-			checkCudaErrors(cudaFree(molecule_device));
-			checkCudaErrors(cudaFree(colors_device));
-			if (host_params.use_voxel)
-			{
-				checkCudaErrors(cudaFree(voxel_data_device));
-				checkCudaErrors(cudaFree(voxel_count_device));
-			}
-			delete[] molecule;
+			focusPoint = 0.5 * (host_params.box_start + host_params.box_end);
+			focusPoint.w = cam_offset_init;
 		}
 
-		molecule_loaded = false;
+		update();
+	}
+	void reload_molecule()
+	{
 	}
 	////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -471,13 +484,9 @@ public:
 	{
 		return host_params;
 	}
-	bool getPerformanceDisplay()
+	SimulationParams *getParamsPointer()
 	{
-		return performanceDisplay;
-	}
-	unsigned int getFrameLimit()
-	{
-		return frameLimit;
+		return &host_params;
 	}
 
 	float4 getCameraFocus()
@@ -489,12 +498,24 @@ public:
 	{
 		return host_params.debug_frame;
 	}
+	std::string getRecentFilePath()
+	{
+		return recentFilePath;
+	}
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// setter
 
+	void setWindowWidth(uint value)
+	{
+		host_params.window_width = value;
+	}
+	void setWindowHeight(uint value)
+	{
+		host_params.window_height = value;
+	}
 	void addToSolventRadius(float value)
 	{
 		host_params.solvent_radius += value;
@@ -526,15 +547,6 @@ public:
 		host_params.mouse_x_pos = value_x;
 		host_params.mouse_y_pos = value_y;
 	}
-	void changePerformanceDisplay(bool state)
-	{
-		performanceDisplay = state;
-	}
-	void changeFrameLimit(unsigned int limit)
-	{
-		frameLimit = limit;
-	}
-
 	void setKnearest(unsigned int value)
 	{
 		host_params.k_nearest = value;
