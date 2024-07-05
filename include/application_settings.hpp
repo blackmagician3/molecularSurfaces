@@ -84,7 +84,7 @@ public:
 		host_params.depth_min = 0.1f;
 		host_params.depth_max = 100.0f;
 		host_params.is_SES = true;
-		host_params.solver = 0;
+
 		host_params.texture_1 = texture;
 
 		host_params.thread_x = 4;
@@ -101,10 +101,15 @@ public:
 		frameLimit = 60;
 		recentFilePath = "";
 
+		host_params.solver = 0;
+		host_params.solver_iter_max = 20;
+		host_params.solver_threshold = host_params.epsilon;
+
 		show_gui = true;
 		show_performance_tool = true;
 		limit_framerate = false;
 		frame = 0;
+		host_params.use_interpolation = true;
 
 		initialize();
 	}

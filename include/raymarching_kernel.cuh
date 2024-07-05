@@ -103,64 +103,93 @@ __device__ float4 blendColors(uint colorA, uint colorB, uint colorC, float weigh
     color.w = 1.0f;
     return color;
 }
+__device__ float4 blendColors(uint palette[], float weights[], int numColors)
+{
+    float4 color = make_float4(.0f);
+    for (int i = 0; i < numColors; i++)
+    {
+        color += convertAndWeight(palette[i], weights[i]);
+    }
+    color.w = 1.0f;
+    return color;
+}
 
-__device__ float4 getSurfaceColor(hitInfo *surfData, float4 *molecule, uint *colors, uint colorScheme, float solventRadius, float x, float y, SimulationParams params, float4 rayDir)
+__device__ float4 getSurfaceColor(hitInfo *surfData, float4 *molecule, uint *colors, float x, float y, SimulationParams params, float4 rayDir)
 {
     // float4 color = make_float4(0.2f, 0.2f, 0.2f, 1.0f);
-    float4 color = make_float4(1.0f, 1.0f, 1.0f, 1.0f);
 
+    float4 default_colors[5];
+    default_colors[0] = make_float4(0.0f, 0.0f, 1.0f, 1.0f);
+    default_colors[1] = make_float4(0.2f, 0.2f, 1.0f, 1.0f);
+    default_colors[2] = make_float4(0.0f, 1.0f, 0.0f, 1.0f);
+    default_colors[3] = make_float4(0.0f, 1.0f, 0.0f, 1.0f);
+    default_colors[4] = make_float4(1.0f, 1.0f, 1.0f, 1.0f);
+
+    float4 error = make_float4(1.0f, 0.0f, 1.0f, 1.0f);
+
+    if (params.colorScheme == 0)
+    {
+        if (surfData->collisionType < 5)
+            return default_colors[surfData->collisionType];
+        return error;
+    }
+
+    float4 color = default_colors[4];
     switch (surfData->collisionType)
     {
     case 0:
-        color = make_float4(0.0f, 0.0f, 1.0f, 1.0f);
+        return default_colors[0];
         break;
     case 1:
-        if (colorScheme == 0)
+        color = convertHexToRGB(colors[surfData->bondId1]);
+        break;
+    case 2:
+    {
+        uint id1 = surfData->bondId1;
+        uint id2 = surfData->bondId2;
+
+        if (params.use_interpolation)
         {
-            color = make_float4(0.2f, 0.2f, 1.0f, 1.0f);
+            float r1 = molecule[id1].w;
+            float r2 = molecule[id2].w;
+            uint palette[2];
+            palette[0] = colors[id1];
+            palette[1] = colors[id2];
+            float weights[2];
+
+            // use distance from atoms to p and normalize with length between atoms
+            float atom1ToP = (length(surfData->rayPos - molecule[id1]) - (r1 - params.solvent_radius));
+            float atom2ToP = (length(surfData->rayPos - molecule[id2]) - (r2 - params.solvent_radius));
+            float sum = atom1ToP + atom2ToP;
+            weights[1] = atom1ToP / sum;
+            weights[0] = atom2ToP / sum;
+
+            color = blendColors(palette, weights, 2);
+            // color = blendColors(colors[surfData->bondId1], colors[surfData->bondId2], weight1, weight2);
         }
         else
         {
             color = convertHexToRGB(colors[surfData->bondId1]);
         }
-        break;
-    case 2:
-        if (colorScheme == 0)
-        {
-            color = make_float4(0.0f, 1.0f, 0.0f, 1.0f);
-        }
-        else
-        {
-            uint id1 = surfData->bondId1;
-            uint id2 = surfData->bondId2;
-            float r1 = molecule[id1].w;
-            float r2 = molecule[id2].w;
 
-            // use distance from atoms to p and normalize with length between atoms
-            float atom1ToP = (length(surfData->rayPos - molecule[id1]) - (r1 - solventRadius));
-            float atom2ToP = (length(surfData->rayPos - molecule[id2]) - (r2 - solventRadius));
-            float sum = atom1ToP + atom2ToP;
-            float weight2 = atom1ToP / sum;
-            float weight1 = atom2ToP / sum;
-
-            color = blendColors(colors[surfData->bondId1], colors[surfData->bondId2], weight1, weight2);
-        }
         break;
+    }
     case 3:
-        if (colorScheme == 0)
+    {
+        int ids[3];
+        ids[0] = surfData->bondId1;
+        ids[1] = surfData->bondId2;
+        ids[2] = surfData->bondId3;
+        if (params.use_interpolation)
         {
-            color = make_float4(0.0f, 1.0f, 0.0f, 1.0f);
-        }
-        else
-        {
-            int ids[3];
-            ids[0] = surfData->bondId1;
-            ids[1] = surfData->bondId2;
-            ids[2] = surfData->bondId3;
+            uint palette[3];
+            palette[0] = colors[ids[0]];
+            palette[1] = colors[ids[1]];
+            palette[2] = colors[ids[2]];
 
-            float r1 = molecule[ids[0]].w - solventRadius;
-            float r2 = molecule[ids[1]].w - solventRadius;
-            float r3 = molecule[ids[2]].w - solventRadius;
+            float r1 = molecule[ids[0]].w - params.solvent_radius;
+            float r2 = molecule[ids[1]].w - params.solvent_radius;
+            float r3 = molecule[ids[2]].w - params.solvent_radius;
 
             float4 p1 = molecule[ids[0]] + normalize(surfData->surfaceHit - molecule[ids[0]]) * r1;
             float4 p2 = molecule[ids[1]] + normalize(surfData->surfaceHit - molecule[ids[1]]) * r2;
@@ -177,14 +206,20 @@ __device__ float4 getSurfaceColor(hitInfo *surfData, float4 *molecule, uint *col
             weights[2] = dot(cross(u, w), n) / dot(n, n);
             weights[1] = dot(cross(w, v), n) / dot(n, n);
             weights[0] = 1 - weights[2] - weights[1];
-
-            color = blendColors(colors[ids[0]], colors[ids[1]], colors[ids[2]], weights);
+            color = blendColors(palette, weights, 3);
+            // color = blendColors(colors[ids[0]], colors[ids[1]], colors[ids[2]], weights);
+        }
+        else
+        {
+            color = convertHexToRGB(colors[surfData->bondId1]);
         }
         break;
+    }
     case 4:
-        color = make_float4(1.0f, 0.0f, 1.0f, 1.0f);
+        return default_colors[4];
         break;
     default:
+        return error;
         break;
     }
     return color;
@@ -192,8 +227,6 @@ __device__ float4 getSurfaceColor(hitInfo *surfData, float4 *molecule, uint *col
 
 __device__ float4 calculateLighting(SimulationParams params, float4 color, float4 position, float4 normal, float4 cam_pos)
 {
-    // TODO: remove point light source
-
     //  colors
     float4 light_color = make_float4(1.0f, 1.0f, 1.0f, 0.0f);
     // float4 light_position = make_float4(5.0f, 0.0f, 10.0f, 0.0f);
@@ -277,18 +310,13 @@ __global__ void marching_kernel(cudaSurfaceObject_t surface, float4 *molecule, u
     // float4 b_color = make_float4(1.0f, 1.0f, 1.0f, 1.0f);
     float4 surfaceColor = b_color;
 
-    // if (frame == 0 && x == 0 && y == 0)
-    // {
-    //     printf("Size of params: %i\n", (int)sizeof(params));
-    // }
-
     hitInfo surfacePointData;
     surfacePointData.collisionType = 0;
     surfacePointData.isInGrid = false;
     surfacePointData.traversedGrid = false;
 
     surfaceColor = b_color;
-    surfacePointData.collisionType = 42;
+    surfacePointData.collisionType = 4;
 
     // ray marching loop
     int step = 0;
@@ -298,7 +326,7 @@ __global__ void marching_kernel(cudaSurfaceObject_t surface, float4 *molecule, u
         ray_pos = cam_position + depth * ray;
 
         // compute distance to surface
-        float f_sdf = computeSurface(ray_pos, ray, molecule, colors, voxel_data, voxel_count, params, &surfacePointData, x, y, frame, step);
+        float f_sdf = computeSurface(ray_pos, ray, molecule, voxel_data, voxel_count, params, &surfacePointData, x, y, frame, step);
 
         // for SES extend distance by solvent radius
         f_sdf += params.solvent_radius;
@@ -307,25 +335,24 @@ __global__ void marching_kernel(cudaSurfaceObject_t surface, float4 *molecule, u
         if (f_sdf < params.epsilon)
         {
             surfacePointData.rayPos = ray_pos + f_sdf * ray;
-            // surfacePointData.rayPos = ray_pos;
             break;
         }
         if (depth > params.depth_max)
         {
             surfaceColor = b_color;
-            surfacePointData.collisionType = 42;
+            surfacePointData.collisionType = 4;
             break;
         }
         if (surfacePointData.traversedGrid)
         {
             surfaceColor = b_color;
-            surfacePointData.collisionType = 42;
+            surfacePointData.collisionType = 4;
             break;
         }
         if (step > steps_max)
         {
             surfaceColor = b_color;
-            surfacePointData.collisionType = 42;
+            surfacePointData.collisionType = 4;
             break;
         }
 
@@ -345,7 +372,7 @@ __global__ void marching_kernel(cudaSurfaceObject_t surface, float4 *molecule, u
     }
     if (!params.debug_mode || !in_highlight)
     {
-        surfaceColor = getSurfaceColor(&surfacePointData, molecule, colors, params.colorScheme, params.solvent_radius, x, y, params, ray);
+        surfaceColor = getSurfaceColor(&surfacePointData, molecule, colors, x, y, params, ray);
 
         if (surfacePointData.collisionType < 4)
         {

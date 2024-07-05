@@ -329,7 +329,7 @@ void setupImgui(AppSettings *settings)
         if (h_large)
             combo_flags |= ImGuiComboFlags_HeightLargest;
 
-        const char *solver_items[] = {"analytic", "numeric"};
+        const char *solver_items[] = {"analytic", "newton", "gradient"};
 
         const char *solver_preview_value = solver_items[p_params->solver];
         if (ImGui::BeginCombo("solver", solver_preview_value, combo_flags))
@@ -350,6 +350,19 @@ void setupImgui(AppSettings *settings)
         {
             ImGui::Text("This determines the way in which the surface points are calculated.\nUp to 3 atomic positions are taken into account.\n\nAnalytical: Uses algebraic relationships to determine the closest surface point. \nNumerical: Uses the Newton iteration to gradually approximate the position of the surface point.");
             ImGui::EndTooltip();
+        }
+        if (p_params->solver == 1 || p_params->solver == 2)
+        {
+            if (ImGui::InputInt("maximum solver iterations", &p_params->solver_iter_max, 1, 10))
+            {
+                if (p_params->solver_iter_max > 0)
+                    settings->update();
+            }
+            if (ImGui::InputFloat("solver threshold", &p_params->solver_threshold, 0.005, 0.01))
+            {
+                if (p_params->solver_threshold > 0)
+                    settings->update();
+            }
         }
 
         // 3. k nearest (integer with step buttons)
@@ -410,8 +423,7 @@ void setupImgui(AppSettings *settings)
         const char *color_items[] = {"High Contrast", "Corey", "Koltun", "Jmol", "Rasmol (old)", "Rasmol (new)", "PubChem"};
         static int color_current_idx = (int)p_params->colorScheme;
         const char *color_preview_value = color_items[color_current_idx];
-        static bool show_reload_dialog = true;
-        static bool color_change = false;
+
         if (ImGui::BeginCombo("color scheme", color_preview_value, combo_flags))
         {
             for (int n = 0; n < IM_ARRAYSIZE(color_items); n++)
@@ -420,7 +432,9 @@ void setupImgui(AppSettings *settings)
                 if (ImGui::Selectable(color_items[n], is_selected))
                 {
                     color_current_idx = n;
-                    color_change = true;
+                    settings->setColorScheme(color_current_idx);
+                    settings->update();
+                    settings->loadMolecule(settings->getRecentFilePath());
                 }
 
                 if (is_selected)
@@ -428,7 +442,6 @@ void setupImgui(AppSettings *settings)
                     ImGui::SetItemDefaultFocus();
                 }
             }
-
             ImGui::EndCombo();
         }
         if (ImGui::BeginItemTooltip())
@@ -436,42 +449,9 @@ void setupImgui(AppSettings *settings)
             ImGui::Text("This changes the color scheme of the program to fit popular color conventions for molecular models.\n\n IMPORTANT: This requires a reload of the molecule!");
             ImGui::EndTooltip();
         }
-        if (color_change)
-        {
-            if (!show_reload_dialog)
-            {
-                settings->setColorScheme(color_current_idx);
-                settings->update();
-                settings->loadMolecule(settings->getRecentFilePath());
-            }
-            ImGui::OpenPopup("Confirm reload");
-            ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-            ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-            color_change = false;
-        }
-        if (ImGui::BeginPopupModal("Confirm reload", &show_reload_dialog, ImGuiWindowFlags_AlwaysAutoResize))
-        {
-            ImGui::SetItemDefaultFocus();
-            ImGui::Text("Changing the color scheme requires a reload of the molecule.\n\n");
-            ImGui::Checkbox("Show reload confirmation", &show_reload_dialog);
-            ImGui::Text("\n");
-            if (ImGui::Button("Reload"))
-            {
-                // TODO: add color changes -> reload molecule
-                settings->setColorScheme(color_current_idx);
-                settings->update();
-                settings->loadMolecule(settings->getRecentFilePath());
-                ImGui::CloseCurrentPopup();
-                color_change = false;
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Cancel"))
-            {
-                ImGui::CloseCurrentPopup();
-                color_change = false;
-            }
-            ImGui::EndPopup();
-        }
+
+        if (ImGui::Checkbox("use color gradients", &p_params->use_interpolation))
+            settings->update();
 
         // 7. window size for calculation (combo box with common resolutions)
         const char *resolution_items[] = {"1280 x 720 (16:9) [HD]", "1366 x 768", "1680 x 1050 (16:10)", "1920 x 1080 (16:9) [FHD]", "2560 x 1440 (16:9) [QHD]", "3440 x 1440 (21:9) [UWQHD]", "3840 x 2160 (16:9) [4K]"};

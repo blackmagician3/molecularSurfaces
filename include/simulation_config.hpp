@@ -29,7 +29,7 @@ struct SimulationParams
     uint k_nearest;
     bool is_SES;
     bool use_voxel;
-    int solver;
+
     float solvent_radius;
     float solvent_max;
     float epsilon;
@@ -44,6 +44,15 @@ struct SimulationParams
 
     // coloring
     uint colorScheme;
+    bool use_interpolation;
+
+    // solver
+
+    int solver;
+    int solver_iter_max;
+    float solver_threshold;
+    float solver_step_size;
+
     // for debugging
     bool debug_mode;
     double mouse_x_pos;
@@ -115,7 +124,7 @@ ThreadBlock calcThreadBlock(unsigned int width, unsigned int height)
     struct cudaDeviceProp props;
     cudaGetDeviceProperties(&props, device);
 
-    unsigned int maxT = floor(props.maxThreadsPerBlock / 2);
+    unsigned int maxT = floor(props.maxThreadsPerBlock / 4);
 
     std::vector<unsigned int> divWidth = findDivs(width);
     std::vector<unsigned int> divHeight = findDivs(height);

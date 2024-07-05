@@ -173,6 +173,11 @@ int main(int argc, char **argv)
     // run CUDA kernel to generate vertex positions
     runCuda(cam, settings->getAllHostParams(), settings->getDeviceMolecule(), settings->getDeviceColors(), settings->getDeviceVoxelData(), settings->getDeviceVoxelCount(), settings->frame);
 
+    if (settings->frame == 10)
+    {
+      test_kernel<<<1, 1>>>(settings->frame);
+    }
+
     // display molecule
 
     glClearColor(0, 0, 0, 1);
