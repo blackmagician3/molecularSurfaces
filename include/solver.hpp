@@ -298,4 +298,38 @@ __device__ float backtrack_length(float3 point, const MatrixDim3 &atoms, const f
     return length(grad);
 }
 
+__device__ float3 gaussianElimination(float3 row1, float3 row2, float3 row3, float3 rightSide)
+{
+    float3 result;
+
+    // Make row1 as pivot row
+    if (row1.x != 1.0)
+    {
+        row2.x /= row1.x;
+        row3.x /= row1.x;
+        rightSide.x /= row1.x;
+        row1.x = 1.0;
+    }
+
+    if (row2.x != 0.0)
+    {
+        float m = row2.x;
+        row2.x = row1.x - m;
+        rightSide.x -= m * rightSide.y;
+        row1.x = 0.0;
+    }
+
+    if (row3.x != 0.0)
+    {
+        float m = row3.x;
+        row3.x = row2.x - m;
+        rightSide.y -= m * rightSide.z;
+        row2.x = 0.0;
+    }
+
+    result.x = rightSide.y;
+
+    return result;
+}
+
 #endif

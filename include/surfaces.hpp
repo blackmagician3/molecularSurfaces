@@ -61,7 +61,8 @@ struct hitInfo
  */
 struct functionArgs
 {
-    const float4 ray_pos;       // copy of ray position
+    // TODO: make rayos const after testing
+    float4 ray_pos;             // copy of ray position
     const float4 ray_dir;       // copy of ray direction
     SimulationParams *p_params; // device parameters that can be configured from the UI
     float4 *atom_data_global;   // points to the complete array of atoms
@@ -69,6 +70,7 @@ struct functionArgs
     Atom *atom_data_local;      // points to a shortend array of close atoms
     hitInfo *hit_feedback;      // contains information of surface hit
     float shortest_distance;
+    bool existence;
 
     // debug information
     const int x, y;  // current pixel
@@ -428,15 +430,16 @@ __device__ float4 intersectTwoSpheres2b(float4 atom1, float4 atom2, functionArgs
  * @param args
  * @return __device__
  */
-__device__ float4 intersectThreeSpheres2b(float4 atom1, float4 atom2, float4 atom3, functionArgs *args)
+__device__ float4 intersectThreeSpheres2a(float4 atom1, float4 atom2, float4 atom3, functionArgs *args)
 {
     float4 p = args->ray_pos;
     float delta = INFINITY;
     float4 intersec_prev = make_float4(p.x, p.y, p.z, 0);
     float4 intersec;
-    int solver_iter = 0; // for debugging
+    int solver_iter = 0;
     int max_iter_newton = args->p_params->solver_iter_max;
     float f_length = INFINITY;
+
     while (delta > args->p_params->solver_threshold)
     {
         float4 a = -(atom1 - intersec_prev) / (length(atom1 - intersec_prev));
@@ -458,6 +461,13 @@ __device__ float4 intersectThreeSpheres2b(float4 atom1, float4 atom2, float4 ato
         // for debugging
         solver_iter++;
 
+        // if (frame == 200 && x == 1000 && y == 650)
+        // {
+        //     // x|y|frame|calculation|delta|prev.x|prev.y|prev.z|next.x|next.y|next.z|det|change.x|change.y|change.z
+        //     printf("%i|%i|%i|%i|%i|%.8f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.5f|%.3f|%.3f|%.3f|%.3f|%.3f\n", x, y, frame, calculations, solver_iter - 1, delta, intersec_prev.x, intersec_prev.y, intersec_prev.z,
+        //            intersec.x, intersec.y, intersec.z, m_det, inter_change.x, inter_change.y, inter_change.z, v.x, v.y);
+        //     // printf("DEBUG: step: %i, delta: %.3f, x: %.3f, %.3f, %.3f, det: %.3f\n", solver_iter - 1, delta, inter_change.x, inter_change.y, inter_change.z, m_det);
+        // }
         intersec_prev = intersec;
 
         if (solver_iter > max_iter_newton)
@@ -466,9 +476,69 @@ __device__ float4 intersectThreeSpheres2b(float4 atom1, float4 atom2, float4 ato
             break;
         }
     }
+
+    return intersec;
 }
 
-return intersec;
+__device__ float4 intersectThreeSpheres2b(float4 atom1, float4 atom2, float4 atom3, functionArgs *args)
+{
+    float4 p = args->ray_pos;
+    float delta = INFINITY;
+    float4 intersec_prev = make_float4(p.x, p.y, p.z, 0);
+    float4 intersec;
+    int solver_iter = 0;
+    int max_iter_newton = args->p_params->solver_iter_max;
+    float f_length = INFINITY;
+
+    while (delta > args->p_params->solver_threshold)
+    {
+        float4 a = -(atom1 - intersec_prev) / (length(atom1 - intersec_prev));
+        float4 b = -(atom2 - intersec_prev) / (length(atom2 - intersec_prev));
+        float4 c = -(atom3 - intersec_prev) / (length(atom3 - intersec_prev));
+        float3 v = make_float3(atom1.w - length(intersec_prev - atom1), atom2.w - length(intersec_prev - atom2), atom3.w - length(intersec_prev - atom3));
+        float m_det = a.x * (b.y * c.z - b.z * c.y) - a.y * (b.x * c.z - b.z * c.x) - a.z * (b.x * c.y - b.y * c.x);
+        if (abs(m_det) < ZERO)
+            m_det = ZERO;
+        float3 m1 = make_float3(b.y * c.z - b.z * c.y, a.z * c.y - a.y * c.z, a.y * b.z - a.z * b.y);
+        float3 m2 = make_float3(b.z * c.x - b.x * c.z, a.x * c.z - a.z * c.x, a.z * b.x - a.x * b.z);
+        float3 m3 = make_float3(b.x * c.y - b.y * c.x, a.y * c.x - a.x * c.y, a.x * b.y - a.y * b.x);
+
+        // float4 inter_change = make_float4(gaussianElimination(m1, m2, m3, -v), .0f);
+        float4 inter_change = make_float4(v.x * m1.x + v.y * m1.y + v.z * m1.z, v.x * m2.x + v.y * m2.y + v.z * m2.z, v.x * m3.x + v.y * m3.y + v.z * m3.z, 0) / m_det;
+
+        // backtracking line search
+        float alpha = 1.0;    // initial step size
+        float armijo_c = 0.5; // Armijo condition constant
+
+        float4 next_point;
+        float3 f_next;
+        float3 f = v;
+
+        while (true)
+        {
+            next_point = intersec_prev + alpha * inter_change;
+            f_next = make_float3(atom1.w - length(next_point - atom1), atom2.w - length(next_point - atom2), atom3.w - length(next_point - atom3));
+            if (dot(f_next, f_next) <= dot(f, f) + armijo_c * alpha * dot(make_float3(inter_change.x, inter_change.y, inter_change.z), f))
+                break;
+
+            alpha *= 0.5;
+        }
+        intersec = next_point;
+        delta = length(intersec - intersec_prev);
+
+        // for debugging
+        solver_iter++;
+
+        intersec_prev = intersec;
+
+        if (solver_iter > max_iter_newton)
+        {
+            args->calcs1 = 42;
+            break;
+        }
+    }
+
+    return intersec;
 }
 __device__ float4 intersectThreeSpheres2c(float4 atom1, float4 atom2, float4 atom3, functionArgs *args)
 {
@@ -536,12 +606,7 @@ __device__ float4 intersectThreeSpheres2c(float4 atom1, float4 atom2, float4 ato
         f_length = f_temp;
 
         solver_iter++;
-        // if (args->frame == 200 && args->x == 987 && args->y == 508)
-        // {
-        //     // x|y|frame|step|calculation|delta|prev.x|prev.y|prev.z|next.x|next.y|next.z|det|change.x|change.y|change.z
-        //     printf("%i|%i|%i|%i|%i|%.8f|%.3f|%.3f|%.3f|NA|NA|NA|%.8f\n", args->x, args->y, args->frame, args->calcs3, solver_iter - 1, delta,
-        //            intersec.x, intersec.y, intersec.z, m_det);
-        // }
+
         intersec_prev = intersec;
 
         if (solver_iter > max_iter_newton)
@@ -550,9 +615,7 @@ __device__ float4 intersectThreeSpheres2c(float4 atom1, float4 atom2, float4 ato
             break;
         }
     }
-}
-
-return intersec;
+    return intersec;
 }
 __device__ float4 intersectThreeSpheres2d(float4 atom1, float4 atom2, float4 atom3, functionArgs *args)
 {
@@ -605,9 +668,7 @@ __device__ float4 intersectThreeSpheres2d(float4 atom1, float4 atom2, float4 ato
             break;
         }
     }
-}
-
-return intersec;
+    return intersec;
 }
 
 /**
@@ -641,39 +702,32 @@ __device__ float4 intersectThreeSpheres2e(float4 atom1, float4 atom2, float4 ato
         MatrixDim3 hessian = {make_float3(.0f), make_float3(.0f), make_float3(.0f)};
         MatrixDim3 inverse = {make_float3(.0f), make_float3(.0f), make_float3(.0f)};
 
-        bool quasi = false;
-        bool posDef[3];
-        for (int i = 0; i < 3; i++)
-        {
-            float3 v = intersec_prev - atoms[i];
-            float l = length(v);
-            posDef[i] = (l > r[i]);
-            if (posDef[i])
-                quasi = true;
-        }
-
+        // normal newton
         for (int i = 0; i < 3; i++)
         {
             float3 v = intersec_prev - atoms[i];
             float l = length(v);
             grad += 2 * v * (1 - (r[i] / l));
 
-            if (quasi)
-            {
-                if (posDef[i])
-                {
-                    hessian += (r[i] / (l * l * l)) * outer_product(v, v) + ((2 * (1 - (r[i] / l))) * identity); // Quasi-Newton
-                }
-                else
-                {
-                    hessian += (r[i] / (l * l * l)) * outer_product(v, v);
-                }
-            }
-            else
-            {
-                hessian += (r[i] / (l * l * l)) * outer_product(v, v) + ((1 - (r[i] / l)) * identity); // Newton
-            }
+            hessian += (r[i] / (l * l * l)) * outer_product(v, v) + ((1 - (r[i] / l)) * identity);
         }
+
+        // // quasi newton
+        // for (int i = 0; i < 3; i++)
+        // {
+        //     float3 v = intersec_prev - atoms[i];
+        //     float l = length(v);
+        //     grad += 2 * v * (1 - (r[i] / l));
+
+        //     if (l > r[i])
+        //     {
+        //         hessian += (r[i] / (l * l * l)) * outer_product(v, v) + ((2 * (1 - (r[i] / l))) * identity); // Quasi-Newton
+        //     }
+        //     else
+        //     {
+        //         hessian += (r[i] / (l * l * l)) * outer_product(v, v);
+        //     }
+        // }
 
         delta = length(grad);
         float det = 0;
@@ -695,14 +749,56 @@ __device__ float4 intersectThreeSpheres2e(float4 atom1, float4 atom2, float4 ato
             break;
         }
     }
+    args->calcs2 = solver_iter;
 
-    intersec_prev = intersec;
+    return make_float4(intersec, .0f);
 }
-args->calcs2 = solver_iter;
+__device__ float4 intersectThreeSpheres2f(float4 atom1, float4 atom2, float4 atom3, functionArgs *args)
+{
+    float4 p = args->ray_pos;
+    float3 intersec_prev = make_float3(p.x, p.y, p.z);
+    float3 intersec;
 
-return make_float4(intersec, .0f);
+    int solver_iter = 0;
+    int max_iter_newton = args->p_params->solver_iter_max;
+
+    float3 x = {0.0};
+    float3 g = {0.0};
+    float h = 2;
+
+    // Loop until convergence or max iterations
+    int i;
+    for (i = 0; i < 100; i++)
+    {
+        // Calculate gradient and Hessian matrix
+        g.x = (length(make_float3(atom1) - x) - atom1.w) / length(make_float3(atom1) - x);
+        g.y = (length(make_float3(atom2) - x) - atom2.w) / length(make_float3(atom2) - x);
+        g.z = (length(make_float3(atom3) - x) - atom3.w) / length(make_float3(atom3) - x);
+
+        float Hess = 0.5 * (g.x * g.x / length(make_float3(atom1) - x) + g.y * g.y / length(make_float3(atom2) - x) + g.z * g.z / length(make_float3(atom3) - x));
+
+        // Update direction
+        if (Hess > 0.0)
+            h = -g.x / Hess;
+        else
+            h = 0.5;
+
+        // Update position
+        x.x += h;
+        x.y += h;
+        x.z += h;
+
+        // Check convergence
+        if (sqrtf(powf(x.x - atom1.x, 2) + powf(x.y - atom1.y, 2) + powf(x.z - atom1.z, 2)) < 1e-6)
+            break;
+    }
+    return make_float4(x, .0f);
 }
 
+/**
+ * @brief calculate intersection point using gradient descend with backtracking line search for step size optimation
+ *
+ */
 __device__ float4 intersectThreeSpheres3(float4 atom1, float4 atom2, float4 atom3, functionArgs *args)
 {
     float4 p = args->ray_pos;
@@ -763,16 +859,15 @@ __device__ float4 intersectThreeSpheres3(float4 atom1, float4 atom2, float4 atom
         solver_iter++;
         intersec_prev = intersec;
 
-        if (solver_iter > max_iter_newton)
+        if (solver_iter > max_iter_gd)
         {
             args->calcs1 = 42;
             break;
         }
     }
-}
-args->calcs2 = solver_iter;
+    args->calcs2 = solver_iter;
 
-return intersec;
+    return intersec;
 }
 
 __device__ bool in_triangle(float4 p, float4 c1, float4 c2, float4 intersect)
@@ -794,6 +889,7 @@ __device__ bool in_triangle(float4 p, float4 c1, float4 c2, float4 intersect)
 
 __device__ pairFloat4 intersectThreeSpheres1(float4 atom1, float4 atom2, float4 atom3, functionArgs *args)
 {
+    pairFloat4 hit;
     float4 p = args->ray_pos;
     float4 base1 = atom2 - atom1;
     float4 base2 = atom3 - atom1;
@@ -809,98 +905,68 @@ __device__ pairFloat4 intersectThreeSpheres1(float4 atom1, float4 atom2, float4 
 
     float v1 = (r_squared1 - r_squared2 + b1 * b1) / (2 * b1);
     float v2 = (r_squared1 - r_squared3 + b2 * b2 - 2 * dot(base2, i) * v1) / (2 * dot(base2, j));
-    float v3 = sqrt(r_squared1 - v1 * v1 - v2 * v2);
-
-    pairFloat4 hit;
+    float argument = r_squared1 - v1 * v1 - v2 * v2;
+    if (argument < 0)
+    {
+        args->existence = false;
+        // return hit;
+    }
+    else
+    {
+        args->existence = true;
+    }
+    float v3 = sqrt(argument);
 
     hit.values[0] = atom1 + i * v1 + j * v2 + cross(i, j) * v3;
     hit.values[1] = atom1 + i * v1 + j * v2 - cross(i, j) * v3;
+    // if (args->calcs2 == 42424242)
+    // {
+    //     printf("DEBUG: in method -> analytic -> pos = %.8f,  %.8f, %.8f\n", p.x, p.y, p.z);
+    //     printf("DEBUG: in method -> analytic -> p1 = %.8f,  %.8f, %.8f\n", atom1.x, atom1.y, atom1.z);
+    //     printf("DEBUG: in method -> analytic -> p2 = %.8f,  %.8f, %.8f\n", atom2.x, atom2.y, atom2.z);
+    //     printf("DEBUG: in method -> analytic -> p3 = %.8f,  %.8f, %.8f\n", atom3.x, atom3.y, atom3.z);
 
-    if (args->frame == 200 && (modf(args->x, 12) + 0) == 0)
-    {
-        // float4 v_a1 = p - atom1;
-        // float4 v_a2 = p - atom2;
-        // float4 v_a3 = p - atom3;
-        // float3 f = make_float3(-square(v_a1) + atom1.w * atom1.w, -square(v_a2) + atom2.w * atom2.w, -square(v_a3) + atom3.w * atom3.w);
-        // float f_length = length(f);
-        // // printf("case|solver|pixel.x|pixel.y|frame|calculation|step|length(f)|delta|intersection.x|intersection.y|intersection.z|note\n");
-        // printf("%i|%i|%i|%i|%i|%i|%i|%.8f|%.8f|%.5f|%.5f|%.5f|point 1\n", 3, args->p_params->solver, args->x, args->y, args->frame, args->calcs3, args->calcs2,
-        //        f_length, .0f, hit.values[0].x, hit.values[0].y, hit.values[0].z);
-        // printf("%i|%i|%i|%i|%i|%i|%i|%.8f|%.8f|%.5f|%.5f|%.5f|point 2\n", 3, args->p_params->solver, args->x, args->y, args->frame, args->calcs3, args->calcs2,
-        //        f_length, .0f, hit.values[1].x, hit.values[1].y, hit.values[1].z);
-        printf("frame|x|y|p.x|p.y|p.z|c1.x|c1.y|c1.z|c2.x|c2.y|c2.z|c3.x|c3.y|c3.z|comp.x|comp.y|comp.z\n");
-        float d = INFINITY;
-        int final = 0;
-        for (int k = 0; k < 2; k++)
-        {
-            float dist = length(p - hit.values[k]);
-            if (dist < d)
-            {
-                d = dist;
-                final = k;
-            }
-        }
+    //     printf("DEBUG: in method -> analytic -> result1 = %.8f,  %.8f, %.8f\n", hit.values[0].x, hit.values[0].y, hit.values[0].z);
+    //     printf("DEBUG: in method -> analytic -> result2 = %.8f,  %.8f, %.8f\n", hit.values[1].x, hit.values[1].y, hit.values[1].z);
+    //     args->calcs2++;
+    // }
 
-        printf("%i|%i|%i|%.8f|%.8f|%.8f|%.8f|%.8f|%.8f|%.8f|%.8f|%.8f|%.8f|%.8f|%.8f|%.8f|%.8f|%.8f\n", args->frame, args->x, args->y,
-               p.x, p.y, p.z,
-               atom1.x, atom1.y, atom1.z,
-               atom2.x, atom2.y, atom2.z,
-               atom3.x, atom3.y, atom3.z,
-               hit.values[final].x, hit.values[final].y, hit.values[final].z);
-    }
+    // if (args->frame == 10 && ((args->x + 11) % 12) == 0)
+    // {
+    //     // float4 v_a1 = p - atom1;
+    //     // float4 v_a2 = p - atom2;
+    //     // float4 v_a3 = p - atom3;
+    //     // float3 f = make_float3(-square(v_a1) + atom1.w * atom1.w, -square(v_a2) + atom2.w * atom2.w, -square(v_a3) + atom3.w * atom3.w);
+    //     // float f_length = length(f);
+    //     // // printf("case|solver|pixel.x|pixel.y|frame|calculation|step|length(f)|delta|intersection.x|intersection.y|intersection.z|note\n");
+    //     // printf("%i|%i|%i|%i|%i|%i|%i|%.8f|%.8f|%.5f|%.5f|%.5f|point 1\n", 3, args->p_params->solver, args->x, args->y, args->frame, args->calcs3, args->calcs2,
+    //     //        f_length, .0f, hit.values[0].x, hit.values[0].y, hit.values[0].z);
+    //     // printf("%i|%i|%i|%i|%i|%i|%i|%.8f|%.8f|%.5f|%.5f|%.5f|point 2\n", 3, args->p_params->solver, args->x, args->y, args->frame, args->calcs3, args->calcs2,
+    //     //        f_length, .0f, hit.values[1].x, hit.values[1].y, hit.values[1].z);
+    //     // printf("frame|x|y|p.x|p.y|p.z|c1.x|c1.y|c1.z|c2.x|c2.y|c2.z|c3.x|c3.y|c3.z|comp.x|comp.y|comp.z\n");
+
+    //     float4 res1, res2;
+    //     if (!args->existence)
+    //     {
+    //         res1 = make_float4(420.0f);
+    //         res2 = make_float4(420.0f);
+    //     }
+    //     else
+    //     {
+    //         res1 = hit.values[0];
+    //         res2 = hit.values[1];
+    //     }
+
+    //     printf("%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.4f|%.6f|%.6f|%.6f|%.4f|%.6f|%.6f|%.6f|%.4f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f\n",
+    //            p.x, p.y, p.z,
+    //            atom1.x, atom1.y, atom1.z, atom1.w,
+    //            atom2.x, atom2.y, atom2.z, atom2.w,
+    //            atom3.x, atom3.y, atom3.z, atom3.w,
+    //            res1.x, res1.y, res1.z,
+    //            res2.x, res2.y, res2.z);
+    // }
     args->calcs1 = 0;
-}
-return hit;
-}
-
-__device__ float4 intersectThreeSpheres2a(float4 atom1, float4 atom2, float4 atom3, functionArgs *args)
-{
-    float4 p = args->ray_pos;
-    float delta = INFINITY;
-    float4 intersec_prev = make_float4(p.x, p.y, p.z, 0);
-    float4 intersec;
-    int solver_iter = 0;
-    int max_iter_newton = args->p_params->solver_iter_max;
-    float f_length = INFINITY;
-
-    while (delta > args->p_params->solver_threshold)
-    {
-        float4 a = -(atom1 - intersec_prev) / (length(atom1 - intersec_prev));
-        float4 b = -(atom2 - intersec_prev) / (length(atom2 - intersec_prev));
-        float4 c = -(atom3 - intersec_prev) / (length(atom3 - intersec_prev));
-        float3 v = make_float3(atom1.w - length(intersec_prev - atom1), atom2.w - length(intersec_prev - atom2), atom3.w - length(intersec_prev - atom3));
-        float m_det = a.x * (b.y * c.z - b.z * c.y) - a.y * (b.x * c.z - b.z * c.x) - a.z * (b.x * c.y - b.y * c.x);
-        if (abs(m_det) < ZERO)
-            m_det = ZERO;
-        float4 m1 = make_float4(b.y * c.z - b.z * c.y, a.z * c.y - a.y * c.z, a.y * b.z - a.z * b.y, 0);
-        float4 m2 = make_float4(b.z * c.x - b.x * c.z, a.x * c.z - a.z * c.x, a.z * b.x - a.x * b.z, 0);
-        float4 m3 = make_float4(b.x * c.y - b.y * c.x, a.y * c.x - a.x * c.y, a.x * b.y - a.y * b.x, 0);
-
-        float4 inter_change = make_float4(v.x * m1.x + v.y * m1.y + v.z * m1.z, v.x * m2.x + v.y * m2.y + v.z * m2.z, v.x * m3.x + v.y * m3.y + v.z * m3.z, 0) / m_det;
-
-        intersec = inter_change + intersec_prev;
-        delta = length(intersec - intersec_prev);
-
-        // for debugging
-        solver_iter++;
-
-        // if (frame == 200 && x == 1000 && y == 650)
-        // {
-        //     // x|y|frame|calculation|delta|prev.x|prev.y|prev.z|next.x|next.y|next.z|det|change.x|change.y|change.z
-        //     printf("%i|%i|%i|%i|%i|%.8f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.5f|%.3f|%.3f|%.3f|%.3f|%.3f\n", x, y, frame, calculations, solver_iter - 1, delta, intersec_prev.x, intersec_prev.y, intersec_prev.z,
-        //            intersec.x, intersec.y, intersec.z, m_det, inter_change.x, inter_change.y, inter_change.z, v.x, v.y);
-        //     // printf("DEBUG: step: %i, delta: %.3f, x: %.3f, %.3f, %.3f, det: %.3f\n", solver_iter - 1, delta, inter_change.x, inter_change.y, inter_change.z, m_det);
-        // }
-        intersec_prev = intersec;
-
-        if (solver_iter > max_iter_newton)
-        {
-            args->calcs1 = 42;
-            break;
-        }
-    }
-
-    return intersec;
+    return hit;
 }
 
 __device__ bool testIntersectionType3(const float4 intersection_point, float4 &hit, const int i, const int j, const int k, functionArgs *args)
@@ -1209,7 +1275,7 @@ __device__ float computeSurface(const float4 ray_pos, const float4 ray_dir, floa
     // int calcs2;      // can be used as counter for loops
     // int calcs3;      // can be used as counter for loops
 
-    functionArgs args = {ray_pos, ray_dir, &params, molecule, voxel_data, nullptr, surfacePointData, INFINITY, x, y, frame, step, 0, 0, 0};
+    functionArgs args = {ray_pos, ray_dir, &params, molecule, voxel_data, nullptr, surfacePointData, INFINITY, true, x, y, frame, step, 0, 0, 0};
 
     float f_sdf = 0; // current distance to SAS
 
@@ -1386,7 +1452,7 @@ __device__ float computeSurface(const float4 ray_pos, const float4 ray_dir, floa
                                 {
                                     pairFloat4 s_pot = intersectThreeSpheres1(nearest_atoms[i].location, nearest_atoms[j].location, nearest_atoms[k].location, &args);
                                     args.calcs3++; // for debugging
-                                    if (testIntersectionType3(s_pot, surface_hit, i, j, k, &args))
+                                    if ((args.existence) && testIntersectionType3(s_pot, surface_hit, i, j, k, &args))
                                         surface_found = true;
                                     break;
                                 }
@@ -1478,120 +1544,4 @@ __device__ float computeSurface(const float4 ray_pos, const float4 ray_dir, floa
     return f_sdf;
 }
 
-const int TEST_NUM = 500;
-const int TEST_METHODS = 5;
-struct intersection_tester
-{
-    float4 position[TEST_NUM];
-    float4 point1[TEST_NUM];
-    float4 point2[TEST_NUM];
-    float4 point3[TEST_NUM];
-    float4 comparison[TEST_NUM];
-};
-
-__global__ void test_kernel(SimulationParams params, int frame = 0)
-{
-    float epsilon = 0.001f;
-    cudaEvent_t start, stop;
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
-
-    intersection_tester data = {};
-
-    functionArgs args = {make_float4(.0f), make_float4(.0f), &params, nullptr, nullptr, nullptr, nullptr, INFINITY, x, y, frame, 0, 0, 0, 0};
-    float accumulated_delta = 0.0f;
-
-    int count_hit[TEST_METHODS];          // countup if intersection point found
-    int count_miss[TEST_METHODS];         // countup if no intersection point found
-    int count_correct[TEST_METHODS];      // countup if delta to comparison correct
-    int count_incorrect[TEST_METHODS];    // countup if delta to comparison not correct
-    int count_converged[TEST_METHODS];    // countup if intersection calculation terminates before reaching the iteration threshold
-    int count_iter_reached[TEST_METHODS]; // countup if calculation reaches iteration threshold
-    float time[TEST_METHODS];             // for time measurement (in milliseconds)
-
-    for (int i = 0; i < TEST_METHODS; i++)
-    {
-        count_hit[i] = 0;          // countup if intersection point found
-        count_miss[i] = 0;         // countup if no intersection point found
-        count_correct[i] = 0;      // countup if delta to comparison correct
-        count_incorrect[i] = 0;    // countup if delta to comparison not correct
-        count_converged[i] = 0;    // countup if intersection calculation terminates before reaching the iteration threshold
-        count_iter_reached[i] = 0; // countup if calculation reaches iteration threshold
-    }
-
-    for (int j = 0; j < TEST_METHODS; j++)
-    {
-        cudaEventRecord(start);
-        for (int i = 0; i < TEST_NUM; i++)
-        {
-            args.ray_pos = data.position;
-            float4 intersection;
-
-            switch (j)
-            {
-            case 0:
-                pairFloat4 temp = intersectThreeSpheres1(data.point1, data.point2, data.point3, &args);
-                float d = INFINITY;
-                int finalRes = 0;
-                for (int k = 0; k < 2; k++)
-                {
-                    float dist = length(data.comparison - temp.values[k]);
-
-                    if (dist < d)
-                    {
-                        finalRes = k;
-                    }
-                }
-                intersection = temp.values[finalRes];
-                break;
-
-            case 1:
-                intersection = intersectThreeSpheres2a(data.point1, data.point2, data.point3, &args);
-                break;
-            case 2:
-                intersection = intersectThreeSpheres2b(data.point1, data.point2, data.point3, &args);
-                break;
-            case 3:
-                intersection = intersectThreeSpheres2c(data.point1, data.point2, data.point3, &args);
-                break;
-            case 4:
-                intersection = intersectThreeSpheres2d(data.point1, data.point2, data.point3, &args);
-                break;
-            case 5:
-                intersection = intersectThreeSpheres2e(data.point1, data.point2, data.point3, &args);
-                break;
-            case 6:
-                intersection = intersectThreeSpheres3(data.point1, data.point2, data.point3, &args);
-                break;
-            default:
-                break;
-            }
-            // calculate statistics
-            float delta = length(data.comparison - intersection);
-
-            (intersection = make_float4(.0f)) ? count_miss[j]++ : count_hit[j]++;
-            (delta < epsilon) ? count_correct[j]++ : count_incorrect[j]++;
-            (args.calcs1 == 42) ? count_iter_reached[j]++ : count_converged[j]++;
-        }
-        cudaEventRecord(stop);
-        cudaEventSynchronize(stop);
-        cudaEventElapsedTime(&time[j], start, stop);
-    }
-    printf("---------------------------------------------------------------\n");
-    printf("Intersection report (epsilon = %.8f\n", epsilon);
-    printf("---------------------------------------------------------------\n");
-    printf("method|time|total_calculations|share hits|share misses|share correct|share incorrect|share_converged|share_terminated\n");
-    printf("---------------------------------------------------------------\n");
-    for (int i = 0; i < TEST_METHODS; i++)
-    {
-        printf("%i|%.0f|%i|%i|%i|%i|%i|%i|%i\n", i, time[i], TEST_NUM,
-               count_hit[i],
-               count_miss[i],
-               count_correct[i],
-               count_incorrect[i],
-               count_converged[i],
-               count_iter_reached[i]);
-    }
-    printf("---------------------------------------------------------------\n");
-}
 #endif

@@ -19,6 +19,7 @@
 #include <surfaces.hpp>
 #include <application_settings.hpp>
 #include <simulation_config.hpp>
+#include <tester_data.cuh>
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 // CUDA resources to write to OpenGL texture
@@ -169,7 +170,7 @@ __device__ float4 getSurfaceColor(hitInfo *surfData, float4 *molecule, uint *col
         }
         else
         {
-            color = convertHexToRGB(colors[surfData->bondId1]);
+            color = 0.75f * convertHexToRGB(colors[surfData->bondId1]);
         }
 
         break;
@@ -211,7 +212,7 @@ __device__ float4 getSurfaceColor(hitInfo *surfData, float4 *molecule, uint *col
         }
         else
         {
-            color = convertHexToRGB(colors[surfData->bondId1]);
+            color = 0.5f * convertHexToRGB(colors[surfData->bondId1]);
         }
         break;
     }

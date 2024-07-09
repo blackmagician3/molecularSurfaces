@@ -13,6 +13,7 @@
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
+#include "portable_file_dialog.h"
 
 #include <application_settings.hpp>
 #include "camera.hpp"
@@ -283,7 +284,19 @@ void setupImgui(AppSettings *settings)
         // TODO: import molecule (button)
         if (ImGui::Button("Import"))
         {
-            // importing stuff
+            if (!pfd::settings::available())
+            {
+                std::cout << "ERROR: Portable File Dialogs are not available on this platform.\n";
+            }
+            else
+            {
+                auto selection = pfd::open_file("Select a file to load", ".",
+                                                {"pdb", "*.pdb *.pdb1",
+                                                 "All Files", "*"})
+                                     .result();
+
+                settings->loadMolecule(selection[0]);
+            }
         }
         if (ImGui::BeginItemTooltip())
         {
