@@ -608,23 +608,6 @@ __device__ float4 intersectThreeSpheres2e(float4 atom1, float4 atom2, float4 ato
             hessian += (r[i] / (l * l * l)) * outer_product(v, v) + ((1 - (r[i] / l)) * identity);
         }
 
-        // // quasi newton
-        // for (int i = 0; i < 3; i++)
-        // {
-        //     float3 v = intersec_prev - atoms[i];
-        //     float l = length(v);
-        //     grad += 2 * v * (1 - (r[i] / l));
-
-        //     if (l > r[i])
-        //     {
-        //         hessian += (r[i] / (l * l * l)) * outer_product(v, v) + ((2 * (1 - (r[i] / l))) * identity); // Quasi-Newton
-        //     }
-        //     else
-        //     {
-        //         hessian += (r[i] / (l * l * l)) * outer_product(v, v);
-        //     }
-        // }
-
         delta = length(grad);
         float det = 0;
         inverse = matrix_inverse1(hessian, true, &det);
@@ -634,11 +617,6 @@ __device__ float4 intersectThreeSpheres2e(float4 atom1, float4 atom2, float4 ato
         intersec = intersec_prev + args->p_params->solver_step_size * inter_change;
 
         solver_iter++;
-        // if (args->frame == 200 && args->x == 992 && args->y == 654)
-        // {
-        //     printf("%i|%i|%i|%i|%i|%i|%i|%.8f|%.8f|%.5f|%.5f|%.5f|newton 2\n", 3, args->params->solver, args->x, args->y, args->frame, args->calcs3, solver_iter,
-        //            delta, length(inter_change), intersec.x, intersec.y, intersec.z);
-        // }
         if (solver_iter > max_iter_newton)
         {
             args->calcs1 = 42;
@@ -1130,7 +1108,7 @@ __device__ float computeSurface(const float4 ray_pos, const float4 ray_dir, floa
                         calcs++;
                         break;
                     case 2:
-                        surface_hit = intersectTwoSpheres3(nearest_atoms[i].location, nearest_atoms[j].location, &args);
+                        surface_hit = intersectTwoSpheres1(nearest_atoms[i].location, nearest_atoms[j].location, &args);
                         calcs++;
                         break;
 
