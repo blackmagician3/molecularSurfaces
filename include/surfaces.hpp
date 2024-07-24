@@ -86,16 +86,6 @@ __host__ __device__ float calcSignedDistanceSphere(float4 p, float4 atom)
     return length(p - atom) - atom.w;
 }
 
-// __host__ __device__ float calcSignedDistanceOuter(float4 p, Atom *atoms, int atomCount)
-// {
-//     float dist = calcSignedDistanceSphere(p, atoms[0].location);
-//     for (unsigned int i = 1; i < atomCount; ++i)
-//     {
-//         dist = min(dist, calcSignedDistanceSphere(p, atoms[i].location));
-//     }
-//     return dist;
-// }
-
 __host__ __device__ float localSDouter(float4 p, const functionArgs *args)
 {
 
@@ -107,15 +97,6 @@ __host__ __device__ float localSDouter(float4 p, const functionArgs *args)
     return dist;
 }
 
-// __host__ __device__ float calcSignedDistanceOuter(float4 p, float4 *atoms, int atomCount)
-// {
-//     float dist = calcSignedDistanceSphere(p, atoms[0]);
-//     for (unsigned int i = 1; i < atomCount; ++i)
-//     {
-//         dist = min(dist, calcSignedDistanceSphere(p, atoms[i]));
-//     }
-//     return dist;
-// }
 __host__ __device__ float globalSDouter(float4 p, const functionArgs *args)
 {
 
@@ -126,22 +107,6 @@ __host__ __device__ float globalSDouter(float4 p, const functionArgs *args)
     }
     return dist;
 }
-
-// __host__ __device__ float calcSignedDistanceOuterWithNearestAtom(float4 p, float4 *atoms, int atomCount, hitInfo *surfacePointData)
-// {
-//     int nearId = 0;
-//     float dist = calcSignedDistanceSphere(p, atoms[0]);
-//     for (unsigned int i = 1; i < atomCount; i++)
-//     {
-//         float tmp = dist;
-//         dist = min(dist, calcSignedDistanceSphere(p, atoms[i]));
-//         if (tmp > dist)
-//             nearId = i;
-//     }
-//     surfacePointData->bondId1 = nearId;
-
-//     return dist;
-// }
 
 __host__ __device__ float globalSDouterWithFeedback(float4 p, const functionArgs *args)
 {
@@ -235,54 +200,6 @@ __device__ float4 intersectTwoSpheres2a(float4 atom1, float4 atom2, functionArgs
     int solver_iter = 0; // for debugging
     int max_iter_newton = 20;
 
-    // // derivation from paper
-    // while (!near_enough)
-    // {
-    //     float3 v = make_float3(atom1.w - length(intersec_prev - atom1), atom2.w - length(intersec_prev - atom2), 0);
-    //     if (abs(v.x) < p_params->epsilon && abs(v.y) < p_params->epsilon)
-    //     {
-    //         near_enough = true;
-    //         break;
-    //     }
-
-    //     float4 a = -(atom1 - intersec_prev) / (length(atom1 - intersec_prev));
-    //     float4 b = -(atom2 - intersec_prev) / (length(atom2 - intersec_prev));
-    //     float4 c = cross(a, b);
-
-    //     // float m_det = dot(c, c);
-    //     float m_det = a.x * (b.y * c.z - b.z * c.y) - a.y * (b.x * c.z - b.z * c.x) - a.z * (b.x * c.y - b.y * c.x);
-    //     if (abs(m_det) < ZERO)
-    //         m_det = ZERO;
-    //     float4 m1 = make_float4(b.y * c.z - b.z * c.y, a.z * c.y - a.y * c.z, a.y * b.z - a.z * b.y, 0);
-    //     float4 m2 = make_float4(b.z * c.x - b.x * c.z, a.x * c.z - a.z * c.x, a.z * b.x - a.x * b.z, 0);
-    //     float4 m3 = make_float4(b.x * c.y - b.y * c.x, a.y * c.x - a.x * c.y, a.x * b.y - a.y * b.x, 0); // last column of matrix not needed, as v.z = 0
-
-    //     // float4 inter_change = make_float4(v.x * m1.x + v.y * m2.x, v.x * m1.y + v.y * m2.y, v.x * m1.z + v.y * m2.z, 0) / m_det;  // no z-components, as v.z = 0
-    //     // float4 inter_change = make_float4(v.x * m1.x + v.y * m2.x + v.z * m3.x, v.x * m1.y + v.y * m2.y + v.z * m3.y, v.x * m1.z + v.y * m2.z + v.z * m3.z, 0) / m_det;
-
-    //     float4 inter_change = make_float4(v.x * m1.x + v.y * m1.y + v.z * m1.z, v.x * m2.x + v.y * m2.y + v.z * m2.z, v.x * m3.x + v.y * m3.y + v.z * m3.z, 0) / m_det;
-    //     // float4 inter_change = make_float4(v.x * m1.x + v.y * m1.y + v.z * m1.z, v.x * m2.x + v.y * m2.y + v.z * m2.z, 0, 0) / m_det;
-    //     // float4 inter_change = make_float4(v.x * m1.x + v.y * m1.y + v.z * m1.z, v.x * m2.x + v.y * m2.y + v.z * m2.z, v.x * m3.x + v.y * m3.y + v.z * m3.z, 0) / m_det;
-
-    //     intersec = intersec_prev + inter_change;
-
-    //     delta = length(intersec - intersec_prev);
-
-    //     // for debugging
-    //     solver_iter++;
-
-    //     if (frame == 200 && x == 982 && y == 653)
-    //     {
-    //         // x|y|frame|calculation|step|delta|prev.x|prev.y|prev.z|next.x|next.y|next.z|det|change.x|change.y|change.z
-    //         printf("%i|%i|%i|%i|%i|%i|%.8f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.5f|%.3f|%.3f|%.3f|%.3f|%.3f\n", x, y, frame, step, calculations, solver_iter - 1, delta, intersec_prev.x, intersec_prev.y, intersec_prev.z,
-    //                intersec.x, intersec.y, intersec.z, m_det, inter_change.x, inter_change.y, inter_change.z, v.x, v.y);
-    //         // printf("DEBUG: step: %i, delta: %.3f, x: %.3f, %.3f, %.3f, det: %.3f\n", solver_iter - 1, delta, inter_change.x, inter_change.y, inter_change.z, m_det);
-    //     }
-    //     intersec_prev = intersec;
-
-    //     if (solver_iter > max_iter_newton)
-    //         break;
-    // }
     while (delta > args->p_params->epsilon)
     // while (!near_enough)
     {
@@ -325,12 +242,6 @@ __device__ float4 intersectTwoSpheres2a(float4 atom1, float4 atom2, functionArgs
         // for debugging
         solver_iter++;
 
-        // if (args->frame == 200 && args->x == 987 && args->y == 508)
-        // {
-        //     // x|y|frame|calculation|step|delta|prev.x|prev.y|prev.z|next.x|next.y|next.z|det|change.x|change.y|change.z
-        //     printf("%i|%i|%i|%i|%i|%i|%.8f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.5f|%.3f|%.3f|%.3f|%.3f|%.3f\n", args->x, args->y, args->frame, args->step, args->calcs3, solver_iter - 1, delta, intersec_prev.x, intersec_prev.y, intersec_prev.z,
-        //            intersec.x, intersec.y, intersec.z, m_det, inter_change.x, inter_change.y, inter_change.z, v.x, v.y);
-        // }
         intersec_prev = intersec;
 
         if (solver_iter > max_iter_newton)
@@ -406,11 +317,6 @@ __device__ float4 intersectTwoSpheres2b(float4 atom1, float4 atom2, functionArgs
         intersec = intersec_prev + args->p_params->solver_step_size * inter_change;
 
         solver_iter++;
-        // if (args->frame == 200 && args->x == 992 && args->y == 654)
-        // {
-        //     printf("%i|%i|%i|%i|%i|%i|%i|%.8f|%.8f|%.5f|%.5f|%.5f|newton 2\n", 3, args->params->solver, args->x, args->y, args->frame, args->calcs3, solver_iter,
-        //            delta, length(inter_change), intersec.x, intersec.y, intersec.z);
-        // }
         if (solver_iter > max_iter_newton)
             break;
 
@@ -461,13 +367,6 @@ __device__ float4 intersectThreeSpheres2a(float4 atom1, float4 atom2, float4 ato
         // for debugging
         solver_iter++;
 
-        // if (frame == 200 && x == 1000 && y == 650)
-        // {
-        //     // x|y|frame|calculation|delta|prev.x|prev.y|prev.z|next.x|next.y|next.z|det|change.x|change.y|change.z
-        //     printf("%i|%i|%i|%i|%i|%.8f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.5f|%.3f|%.3f|%.3f|%.3f|%.3f\n", x, y, frame, calculations, solver_iter - 1, delta, intersec_prev.x, intersec_prev.y, intersec_prev.z,
-        //            intersec.x, intersec.y, intersec.z, m_det, inter_change.x, inter_change.y, inter_change.z, v.x, v.y);
-        //     // printf("DEBUG: step: %i, delta: %.3f, x: %.3f, %.3f, %.3f, det: %.3f\n", solver_iter - 1, delta, inter_change.x, inter_change.y, inter_change.z, m_det);
-        // }
         intersec_prev = intersec;
 
         if (solver_iter > max_iter_newton)
@@ -551,14 +450,12 @@ __device__ float4 intersectThreeSpheres2c(float4 atom1, float4 atom2, float4 ato
     int max_iter_newton = args->p_params->solver_iter_max;
     float f_length = INFINITY;
     while (f_length > args->p_params->solver_threshold)
-    // while (delta > args->p_params->epsilon)
     {
         float4 v_a1 = intersec_prev - atom1;
         float4 v_a2 = intersec_prev - atom2;
         float4 v_a3 = intersec_prev - atom3;
 
         float3 f = make_float3(atom1.w * atom1.w - square(v_a1), atom2.w * atom2.w - square(v_a2), atom3.w * atom3.w - square(v_a3));
-        // f_length = length(f); // for debugging
 
         float4 a = -2 * v_a1;
         float4 b = -2 * v_a2;
@@ -592,7 +489,6 @@ __device__ float4 intersectThreeSpheres2c(float4 atom1, float4 atom2, float4 ato
             float4 v3_temp = intersec_temp - atom3;
 
             f_temp = length(make_float3(atom1.w * atom1.w - square(v1_temp), atom2.w * atom2.w - square(v2_temp), atom3.w * atom3.w - square(v3_temp)));
-            // float f_temp = length(atom1 - intersec_temp) + length(atom2 - intersec_temp) + length(atom3 - intersec_temp);
             float f_prev = length(f);
             if (f_temp <= f_prev + armijo_c * alpha * square(inter_change))
                 break;
@@ -909,7 +805,7 @@ __device__ pairFloat4 intersectThreeSpheres1(float4 atom1, float4 atom2, float4 
     if (argument < 0)
     {
         args->existence = false;
-        // return hit;
+        return hit;
     }
     else
     {
@@ -919,52 +815,7 @@ __device__ pairFloat4 intersectThreeSpheres1(float4 atom1, float4 atom2, float4 
 
     hit.values[0] = atom1 + i * v1 + j * v2 + cross(i, j) * v3;
     hit.values[1] = atom1 + i * v1 + j * v2 - cross(i, j) * v3;
-    // if (args->calcs2 == 42424242)
-    // {
-    //     printf("DEBUG: in method -> analytic -> pos = %.8f,  %.8f, %.8f\n", p.x, p.y, p.z);
-    //     printf("DEBUG: in method -> analytic -> p1 = %.8f,  %.8f, %.8f\n", atom1.x, atom1.y, atom1.z);
-    //     printf("DEBUG: in method -> analytic -> p2 = %.8f,  %.8f, %.8f\n", atom2.x, atom2.y, atom2.z);
-    //     printf("DEBUG: in method -> analytic -> p3 = %.8f,  %.8f, %.8f\n", atom3.x, atom3.y, atom3.z);
 
-    //     printf("DEBUG: in method -> analytic -> result1 = %.8f,  %.8f, %.8f\n", hit.values[0].x, hit.values[0].y, hit.values[0].z);
-    //     printf("DEBUG: in method -> analytic -> result2 = %.8f,  %.8f, %.8f\n", hit.values[1].x, hit.values[1].y, hit.values[1].z);
-    //     args->calcs2++;
-    // }
-
-    // if (args->frame == 10 && ((args->x + 11) % 12) == 0)
-    // {
-    //     // float4 v_a1 = p - atom1;
-    //     // float4 v_a2 = p - atom2;
-    //     // float4 v_a3 = p - atom3;
-    //     // float3 f = make_float3(-square(v_a1) + atom1.w * atom1.w, -square(v_a2) + atom2.w * atom2.w, -square(v_a3) + atom3.w * atom3.w);
-    //     // float f_length = length(f);
-    //     // // printf("case|solver|pixel.x|pixel.y|frame|calculation|step|length(f)|delta|intersection.x|intersection.y|intersection.z|note\n");
-    //     // printf("%i|%i|%i|%i|%i|%i|%i|%.8f|%.8f|%.5f|%.5f|%.5f|point 1\n", 3, args->p_params->solver, args->x, args->y, args->frame, args->calcs3, args->calcs2,
-    //     //        f_length, .0f, hit.values[0].x, hit.values[0].y, hit.values[0].z);
-    //     // printf("%i|%i|%i|%i|%i|%i|%i|%.8f|%.8f|%.5f|%.5f|%.5f|point 2\n", 3, args->p_params->solver, args->x, args->y, args->frame, args->calcs3, args->calcs2,
-    //     //        f_length, .0f, hit.values[1].x, hit.values[1].y, hit.values[1].z);
-    //     // printf("frame|x|y|p.x|p.y|p.z|c1.x|c1.y|c1.z|c2.x|c2.y|c2.z|c3.x|c3.y|c3.z|comp.x|comp.y|comp.z\n");
-
-    //     float4 res1, res2;
-    //     if (!args->existence)
-    //     {
-    //         res1 = make_float4(420.0f);
-    //         res2 = make_float4(420.0f);
-    //     }
-    //     else
-    //     {
-    //         res1 = hit.values[0];
-    //         res2 = hit.values[1];
-    //     }
-
-    //     printf("%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.4f|%.6f|%.6f|%.6f|%.4f|%.6f|%.6f|%.6f|%.4f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f\n",
-    //            p.x, p.y, p.z,
-    //            atom1.x, atom1.y, atom1.z, atom1.w,
-    //            atom2.x, atom2.y, atom2.z, atom2.w,
-    //            atom3.x, atom3.y, atom3.z, atom3.w,
-    //            res1.x, res1.y, res1.z,
-    //            res2.x, res2.y, res2.z);
-    // }
     args->calcs1 = 0;
     return hit;
 }
@@ -1063,34 +914,6 @@ __device__ float calculateDistanceToGrid(functionArgs *args)
     return result + args->p_params->epsilon;
 }
 
-// __device__ void findNearestAtoms(float4 *molecule_data, uint number_atoms, Atom nearest_atoms[], uint nearest_count, float4 position, int x = 0, int y = 0)
-// {
-//     for (uint i = 0; i < nearest_count; i++)
-//     {
-//         float dist = calcSignedDistanceSphere(position, molecule_data[i]);
-
-//         nearest_atoms[i].location = molecule_data[i];
-//         nearest_atoms[i].id = i;
-//         nearest_atoms[i].distance = dist;
-//     }
-//     for (uint i = nearest_count; i < number_atoms; i++)
-//     {
-//         float dist = calcSignedDistanceSphere(position, molecule_data[i]);
-
-//         int max_element = findFurthestByIndex(nearest_atoms, nearest_count);
-//         if (nearest_atoms[max_element].distance > dist)
-//         {
-//             nearest_atoms[max_element].location = molecule_data[i];
-//             nearest_atoms[max_element].id = i;
-//             nearest_atoms[max_element].distance = dist;
-//         }
-//     }
-//     if (nearest_count > 1)
-//     {
-//         selectionSort(nearest_count, nearest_atoms);
-//     }
-// }
-
 __device__ void findNearestAtoms(functionArgs *args)
 {
     for (uint i = 0; i < args->p_params->k_nearest; i++)
@@ -1118,76 +941,6 @@ __device__ void findNearestAtoms(functionArgs *args)
         selectionSort(args->p_params->k_nearest, args->atom_data_local);
     }
 }
-
-// __device__ unsigned int nearestOverVoxel(float4 *molecule_data, int *voxel_data, int *voxel_count, Atom nearest_atoms[], float4 position, float4 direction, SimulationParams params, int x = 0, int y = 0)
-// {
-//     unsigned int nearest_count = 0;
-
-//     // calculate current voxel
-//     int4 current_voxel = castf2i(floorf((position - params.box_start) / params.voxel_size));
-
-//     // TODO: calculate nearest atoms with voxels
-//     // determine closest points for 3x3x3 voxels
-//     int4 range_min = max(current_voxel - make_int4(1, 1, 1, 0), make_int4(0, 0, 0, 0));
-//     int4 range_max = min(current_voxel + make_int4(1, 1, 1, 0), params.voxel_dim - make_int4(1, 1, 1, 0));
-
-//     bool k_full = false;
-
-//     for (int i = range_min.x; i <= range_max.x; i++)
-//     {
-//         for (int j = range_min.y; j <= range_max.y; j++)
-//         {
-//             for (int k = range_min.z; k <= range_max.z; k++)
-//             {
-//                 // 1. calculate voxel id
-//                 int id = castVoxelToId(params.voxel_dim, i, j, k);
-
-//                 int voxel_start = id * params.atomsPerVoxel;
-//                 int voxel_end = (id + 1) * params.atomsPerVoxel;
-
-//                 for (int v = voxel_start; v < voxel_end; v++)
-//                 {
-//                     int m = voxel_data[v];
-//                     if (m >= 0)
-//                     {
-//                         float dist = calcSignedDistanceSphere(position, molecule_data[m]);
-
-//                         if (!k_full)
-//                         {
-//                             // 3. copy all elements to nearest_atoms
-//                             nearest_atoms[nearest_count].location = molecule_data[m];
-//                             nearest_atoms[nearest_count].id = m;
-//                             nearest_atoms[nearest_count].distance = dist;
-//                             nearest_count++;
-
-//                             if (nearest_count >= params.k_nearest)
-//                             {
-//                                 k_full = true;
-//                             }
-//                         }
-//                         else
-//                         {
-//                             int max_element = findFurthestByIndex(nearest_atoms, nearest_count);
-//                             if (nearest_atoms[max_element].distance > dist)
-//                             {
-//                                 nearest_atoms[max_element].location = molecule_data[m];
-//                                 nearest_atoms[max_element].id = m;
-//                                 nearest_atoms[max_element].distance = dist;
-//                             }
-//                         }
-//                     }
-//                 }
-//             }
-//         }
-//     }
-
-//     // swap the closest atom to be at the start of the array(only applicable with multiple atoms in neighbourhood)
-//     if (nearest_count > 1)
-//     {
-//         selectionSort(nearest_count, nearest_atoms);
-//     }
-//     return nearest_count;
-// }
 
 __device__ unsigned int nearestOverVoxel(functionArgs *args)
 {
@@ -1260,21 +1013,6 @@ __device__ unsigned int nearestOverVoxel(functionArgs *args)
 }
 __device__ float computeSurface(const float4 ray_pos, const float4 ray_dir, float4 *molecule, int *voxel_data, int *voxel_count, SimulationParams params, hitInfo *surfacePointData, int x = 0, int y = 0, int frame = 0, int step = 0)
 {
-    // const float4 ray_pos;     // copy of ray position
-    // const float4 ray_dir;     // copy of ray direction
-    // SimulationParams *params; // device parameters that can be configured from the UI
-    // float4 *atom_data_global; // points to the complete array of atoms
-    // int *voxel_data;          // points to array of sorted atoms based on their respective voxel in the grid
-    // Atom *atom_data_local;    // points to a shortend array of close atoms
-    // hitInfo *hit_feedback;    // contains information of surface hit
-
-    // const int x, y;  // current pixel
-    // const int frame; // currently generated frame
-    // int step;        // can be used as counter for loops
-    // int calcs1;      // can be used as counter for loops
-    // int calcs2;      // can be used as counter for loops
-    // int calcs3;      // can be used as counter for loops
-
     functionArgs args = {ray_pos, ray_dir, &params, molecule, voxel_data, nullptr, surfacePointData, INFINITY, true, x, y, frame, step, 0, 0, 0};
 
     float f_sdf = 0; // current distance to SAS
@@ -1306,9 +1044,6 @@ __device__ float computeSurface(const float4 ray_pos, const float4 ray_dir, floa
                 return max(traveldist, 0.0f);
             }
 
-            // f_sdf = calculateDistanceToGrid(ray_pos, ray_dir, params, frame, x, y);
-            // f_sdf = params.solvent_radius;
-
             return 0;
         }
         surfacePointData->isInGrid = true;
@@ -1316,7 +1051,6 @@ __device__ float computeSurface(const float4 ray_pos, const float4 ray_dir, floa
     if (!params.use_voxel)
     {
         f_sdf = globalSDouterWithFeedback(ray_pos, &args);
-        // f_sdf = calcSignedDistanceOuterWithNearestAtom(ray_pos, molecule, params.numAtoms, surfacePointData);
         if (f_sdf >= 0)
             return f_sdf;
     }
@@ -1330,7 +1064,6 @@ __device__ float computeSurface(const float4 ray_pos, const float4 ray_dir, floa
     {
         // determine neighbourhood of atoms over 3 x 3 x 3 voxels
         nearest_count = nearestOverVoxel(&args);
-        // nearest_count = nearestOverVoxel(molecule, voxel_data, voxel_count, nearest_atoms, ray_pos, ray_dir, params, x, y);
 
         if (nearest_count == 0)
         {
@@ -1339,7 +1072,6 @@ __device__ float computeSurface(const float4 ray_pos, const float4 ray_dir, floa
         }
 
         f_sdf = localSDouter(ray_pos, &args);
-        // f_sdf = calcSignedDistanceOuter(ray_pos, nearest_atoms, nearest_count);
 
         if (f_sdf >= 0)
             return f_sdf;
@@ -1358,7 +1090,6 @@ __device__ float computeSurface(const float4 ray_pos, const float4 ray_dir, floa
             // nearest_count = min(params.k_nearest, params.numAtoms);
             nearest_count = (uint)params.k_nearest;
             findNearestAtoms(&args);
-            // findNearestAtoms(molecule, params.numAtoms, nearest_atoms, nearest_count, ray_pos);
         }
 
         ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1373,7 +1104,6 @@ __device__ float computeSurface(const float4 ray_pos, const float4 ray_dir, floa
         surfacePointData->bondId1 = nearest_atoms[0].id;
 
         if (abs(localSDouter(surface_hit, &args)) > params.epsilon)
-        // if (abs(calcSignedDistanceOuter(surface_hit, nearest_atoms, params.k_nearest)) > params.epsilon)
         {
             ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -1390,25 +1120,24 @@ __device__ float computeSurface(const float4 ray_pos, const float4 ray_dir, floa
                     // surface_hit = intersectTwoSpheres1( nearest_atoms[i].location, nearest_atoms[j].location);
                     switch (params.solver)
                     {
-                    default:
                         surface_hit = intersectTwoSpheres1(nearest_atoms[i].location, nearest_atoms[j].location, &args);
                         break;
-                        // case 0:
-                        //     surface_hit = intersectTwoSpheres1(nearest_atoms[i].location, nearest_atoms[j].location, &args);
-                        //     break;
-                        // case 1:
-                        //     surface_hit = intersectTwoSpheres2b(nearest_atoms[i].location, nearest_atoms[j].location, &args);
-                        //     calcs++;
-                        //     break;
-                        // case 2:
-                        //     surface_hit = intersectTwoSpheres3(nearest_atoms[i].location, nearest_atoms[j].location, &args);
-                        //     calcs++;
-                        //     break;
+                    case 0:
+                        surface_hit = intersectTwoSpheres1(nearest_atoms[i].location, nearest_atoms[j].location, &args);
+                        break;
+                    case 1:
+                        surface_hit = intersectTwoSpheres2b(nearest_atoms[i].location, nearest_atoms[j].location, &args);
+                        calcs++;
+                        break;
+                    case 2:
+                        surface_hit = intersectTwoSpheres3(nearest_atoms[i].location, nearest_atoms[j].location, &args);
+                        calcs++;
+                        break;
 
-                        // default:
-                        //     if (frame == 0 && x == 0 && y == 0)
-                        //         printf("ERROR: invalid solver. Solver %i is not defined.\n", params.solver);
-                        //     break;
+                    default:
+                        if (frame == 0 && x == 0 && y == 0)
+                            printf("ERROR: invalid solver. Solver %i is not defined.\n", params.solver);
+                        break;
                     }
 
                     // check if points lie in correct section (arc) of the surface
@@ -1416,7 +1145,6 @@ __device__ float computeSurface(const float4 ray_pos, const float4 ray_dir, floa
                     // check if point lies on the surface
 
                     bool surface = (abs(localSDouter(surface_hit, &args)) < params.epsilon);
-                    // bool surface = (abs(calcSignedDistanceOuter(surface_hit, nearest_atoms, params.k_nearest)) < params.epsilon);
                     if (triangle && surface)
                     {
                         surface_found = true;
@@ -1448,14 +1176,13 @@ __device__ float computeSurface(const float4 ray_pos, const float4 ray_dir, floa
                             switch (params.solver)
                             {
                             case 0:
-                                // default:
-                                {
-                                    pairFloat4 s_pot = intersectThreeSpheres1(nearest_atoms[i].location, nearest_atoms[j].location, nearest_atoms[k].location, &args);
-                                    args.calcs3++; // for debugging
-                                    if ((args.existence) && testIntersectionType3(s_pot, surface_hit, i, j, k, &args))
-                                        surface_found = true;
-                                    break;
-                                }
+                            {
+                                pairFloat4 s_pot = intersectThreeSpheres1(nearest_atoms[i].location, nearest_atoms[j].location, nearest_atoms[k].location, &args);
+                                args.calcs3++; // for debugging
+                                if ((args.existence) && testIntersectionType3(s_pot, surface_hit, i, j, k, &args))
+                                    surface_found = true;
+                                break;
+                            }
                             case 1:
                             {
                                 // TODO: adjust intersection functions to take integer (ids) for atoms
@@ -1463,10 +1190,6 @@ __device__ float computeSurface(const float4 ray_pos, const float4 ray_dir, floa
                                 args.calcs3++;
                                 if (testIntersectionType3(s_pot, surface_hit, i, j, k, &args))
                                     surface_found = true;
-                                // surface_hit = make_float4(INFINITY);
-                                // surface_found = true;
-                                // surfacePointData->collisionType = 4;
-                                // return INFINITY;
                                 break;
                             }
                             case 2:
@@ -1492,38 +1215,6 @@ __device__ float computeSurface(const float4 ray_pos, const float4 ray_dir, floa
                 {
                     surfacePointData->surfaceHit = surface_hit;
                     surfacePointData->collisionType = 3;
-
-                    // if (frame == 199 && x == 761 && y == 634)
-                    // {
-                    //     // // test matrix inverse
-                    //     // MatrixDim3 A;
-                    //     // // A.rows[0] = make_float3(4, 7, 2);
-                    //     // // A.rows[1] = make_float3(3, 5, 1);
-                    //     // // A.rows[2] = make_float3(2, 4, 3);
-                    //     // float3 s = make_float3(3, 9, 2);
-                    //     // float3 q = make_float3(1, 2, -4);
-                    //     // A = outer_product(s, q);
-                    //     // MatrixDim3 expected;
-
-                    //     // expected.rows[0] = make_float3(3, 6, -12);
-                    //     // expected.rows[1] = make_float3(9, 18, -36);
-                    //     // expected.rows[2] = make_float3(2, 4, -8);
-
-                    //     // printf("DEBUG: testing inverse\n");
-                    //     // for (int l = 0; l < 3; l++)
-                    //     // {
-                    //     //     float3 test = A.rows[l] - expected.rows[l];
-                    //     //     printf("delta row %i: %.8f, %.8f,%.8f\n", l, test.x, test.y, test.z);
-                    //     // }
-
-                    //     // printf("case|solver|pixel.x|pixel.y|frame|calculation|step|length(f)|delta|intersection.x|intersection.y|intersection.z|note\n");
-                    //     // printf("%i|%i|%i|%i|%i|%i|%i|%.8f|%.8f|%.5f|%.5f|%.5f|final surface hit\n", 3, params.solver, x, y, frame, calcs, args.calcs2,
-                    //     //        .0f, .0f, surface_hit.x, surface_hit.y, surface_hit.z);
-                    //     // printf("%i|%i|%i|%i|%i|%i|%i|%.8f|%.8f|%.5f|%.5f|%.5f|final ray position\n", 3, params.solver, x, y, frame, calcs, 0,
-                    //     //        .0f, .0f, ray_pos.x, ray_pos.y, ray_pos.z);
-                    //     // printf("%i|%i|%i|%i|%i|%i|%i|%.8f|%.8f|%.5f|%.5f|%.5f|final ray direction\n", 3, params.solver, x, y, frame, calcs, 0,
-                    //     //        .0f, .0f, ray_dir.x, ray_dir.y, ray_dir.z);
-                    // }
                 }
                 else
                 {
@@ -1534,11 +1225,6 @@ __device__ float computeSurface(const float4 ray_pos, const float4 ray_dir, floa
             f_sdf = -1 * length(surface_hit - ray_pos);
         }
     }
-    // if (frame == 199 && x > 1013 && x < 1047 && y > 443 && y < 461)
-    // {
-    //     printf("%i|%i|%i|%i|%i|%i|%i|%.8f|%.8f|%.5f|%.5f|%.5f|final surface hit\n", 3, params.solver, x, y, frame, surfacePointData->collisionType, args.calcs2,
-    //            .0f, .0f, surfacePointData->surfaceHit.x, surfacePointData->surfaceHit.y, surfacePointData->surfaceHit.z);
-    // }
 
     // ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
     return f_sdf;

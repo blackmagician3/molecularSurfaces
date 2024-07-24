@@ -382,28 +382,7 @@ __global__ void marching_kernel(cudaSurfaceObject_t surface, float4 *molecule, u
         }
     }
 
-    // if (surfacePointData.collisionType < 4)
-    // {
-    //     float4 normal = calculateNormal(&surfacePointData, molecule, params.debug_mode);
-    //     surfaceColor = calculateLighting(params, surfaceColor, ray_pos, normal, cam_position);
-    // }
-
     surf2Dwrite(surfaceColor, surface, x * sizeof(float4), y);
-
-    // if (params.debug_mode && params.debug_frame == 0 && x == 728 && y == 423)
-    // {
-    //     printf("------DEBUG after write -------\n");
-    //     printf("Pixel: %i, %i\n", x, y);
-    //     printf("SurfaceHit: %.2f, %.2f, %.2f\n", surfacePointData.surfaceHit.x, surfacePointData.surfaceHit.y, surfacePointData.surfaceHit.z);
-    //     printf("RayPos: %.2f, %.2f, %.2f\n", surfacePointData.rayPos.x, surfacePointData.rayPos.y, surfacePointData.rayPos.z);
-    //     printf("RayDir: %.4f, %.4f, %.4f\n", ray.x, ray.y, ray.z);
-    //     printf("Box_min: %.2f, %.2f, %.2f\n", params.box_start.x, params.box_start.y, params.box_start.z);
-    //     printf("Box_max: %.2f, %.2f, %.2f\n", params.box_end.x, params.box_end.y, params.box_end.z);
-    //     printf("BondID1: %i\n", surfacePointData.bondId1);
-    //     printf("Colour: %.2f, %.2f, %.2f\n", surfaceColor.x, surfaceColor.y, surfaceColor.z);
-    //     printf("CollisionType: %i\n", surfacePointData.collisionType);
-    //     printf("-------------------------------\n");
-    // }
 }
 void runCuda(Camera *cam, SimulationParams host_params, float4 *molecule, uint *colors, int *voxel_data, int *voxel_count, int frame = 0)
 {
@@ -424,10 +403,6 @@ void runCuda(Camera *cam, SimulationParams host_params, float4 *molecule, uint *
     float4 cam_pos = cam->getPosAsFloat4();
     float4 cam_front = cam->getFrontAsFloat4();
 
-    if (host_params.debug_mode && host_params.debug_frame == 0)
-    {
-        printf("Cam Position: %.2f, %.2f, %.2f\n", cam_pos.x, cam_pos.y, cam_pos.z);
-    }
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // map OpenGL buffer object for writing from CUDA
     // size_t num_bytes_1, num_bytes_2;
